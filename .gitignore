@@ -1,0 +1,33 @@
+# Reference materials and external resources
+reference/
+
+# Build artifacts
+build/
+*.o
+*.a
+*.so
+*.out
+
+# Executables
+ethernet_send
+ethernet_recv
+
+# Output files
+output/
+*.bin
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*.code-workspace
+
+# OS files
+.DS_Store
+.directory
+Thumbs.db
+
+# Temporary files
+*.tmp
+*~

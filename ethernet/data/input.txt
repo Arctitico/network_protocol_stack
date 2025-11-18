@@ -1,0 +1,5 @@
+This is a test data file for Ethernet frame transmission.
+The Ethernet data link layer requires data to be between 46 and 1500 bytes.
+This message contains exactly enough characters to meet the minimum requirement.
+Industrial Ethernet Protocol Stack - Data Link Layer Implementation.
+Testing CRC-32 checksum calculation and frame validation mechanisms!
