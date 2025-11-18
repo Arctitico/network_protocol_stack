@@ -23,6 +23,9 @@ output/
 *.swo
 *.code-workspace
 
+# report files
+reports/
+
 # OS files
 .DS_Store
 .directory
