@@ -54,17 +54,6 @@ send: dirs $(SEND_TARGET)
 
 recv: dirs $(RECV_TARGET)
 
-# Test targets
-test: all
-	@echo "Running Ethernet layer test..."
-	@echo "Step 1: Sending frame..."
-	./$(SEND_TARGET)
-	@echo ""
-	@echo "Step 2: Receiving frame..."
-	./$(RECV_TARGET)
-	@echo ""
-	@echo "Test completed!"
-
 # Clean build artifacts
 clean:
 	rm -rf $(BUILD_DIR)
@@ -79,20 +68,4 @@ cleanall: clean
 	rm -rf $(OUTPUT_DIR)/*
 	@echo "Cleaned all generated files"
 
-# Help
-help:
-	@echo "Ethernet Data Link Layer Makefile"
-	@echo ""
-	@echo "Targets:"
-	@echo "  all      - Build both sender and receiver (default)"
-	@echo "  send     - Build sender only"
-	@echo "  recv     - Build receiver only"
-	@echo "  test     - Build and run a complete send/receive test"
-	@echo "  clean    - Remove build artifacts and executables"
-	@echo "  cleanall - Remove all generated files including data"
-	@echo "  help     - Show this help message"
-	@echo ""
-	@echo "Usage examples:"
-	@echo "  make              # Build everything"
-	@echo "  make test         # Run complete test"
-	@echo "  make clean        # Clean build files"
+
