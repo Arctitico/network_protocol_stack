@@ -24,48 +24,24 @@ RECV_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(RECV_SRCS))
 SEND_TARGET = ethernet_send
 RECV_TARGET = ethernet_recv
 
-.PHONY: all clean send recv test dirs
+.PHONY: all clean send recv dirs
 
 all: dirs $(SEND_TARGET) $(RECV_TARGET)
 
-# Create necessary directories
 dirs:
-	@mkdir -p $(BUILD_DIR)
-	@mkdir -p $(DATA_DIR)
-	@mkdir -p $(OUTPUT_DIR)
+	@mkdir -p $(BUILD_DIR) $(DATA_DIR) $(OUTPUT_DIR)
 
-# Build sender
 $(SEND_TARGET): $(SEND_OBJS)
 	$(CC) -o $@ $^ $(LDFLAGS)
-	@echo "Built sender: $(SEND_TARGET)"
 
-# Build receiver
 $(RECV_TARGET): $(RECV_OBJS)
 	$(CC) -o $@ $^ $(LDFLAGS)
-	@echo "Built receiver: $(RECV_TARGET)"
 
-# Compile source files
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
 	@mkdir -p $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 
-# Shortcuts
-send: dirs $(SEND_TARGET)
-
-recv: dirs $(RECV_TARGET)
-
-# Clean build artifacts
 clean:
-	rm -rf $(BUILD_DIR)
-	rm -f $(SEND_TARGET) $(RECV_TARGET)
-	rm -f $(DATA_DIR)/frame.bin
-	rm -f $(OUTPUT_DIR)/received_data.txt
-	@echo "Cleaned build artifacts"
-
-# Clean everything including data
-cleanall: clean
-	rm -rf $(DATA_DIR)/*.txt $(DATA_DIR)/*.bin
-	rm -rf $(OUTPUT_DIR)/*
-	@echo "Cleaned all generated files"
+	rm -rf $(BUILD_DIR) $(SEND_TARGET) $(RECV_TARGET)
 
 

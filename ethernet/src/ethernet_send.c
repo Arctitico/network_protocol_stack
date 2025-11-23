@@ -39,6 +39,11 @@ static int get_interface_mac(const char *ifname, uint8_t *mac)
     return 0;
 }
 
+// Global variables to cache interface selection
+static char g_selected_interface[IFNAMSIZ] = {0};
+static uint8_t g_cached_src_mac[6] = {0};
+static int g_interface_selected = 0;
+
 /**
  * Load Ethernet header into frame buffer
  */
@@ -92,6 +97,39 @@ int send_ethernet_frame(uint8_t *buffer, int frame_size)
     char errbuf[PCAP_ERRBUF_SIZE];
     int inum, i = 0;
     
+    // If interface is already selected, use it directly
+    if (g_interface_selected)
+    {
+        // Update source MAC in the frame buffer
+        memcpy(buffer + 6, g_cached_src_mac, 6);
+        
+        // Open the device
+        handle = pcap_open_live(g_selected_interface, // name of the device
+                                65536,                // portion to capture (entire packet)
+                                1,                    // promiscuous mode
+                                1000,                 // read timeout
+                                errbuf);              // error buffer
+        
+        if (handle == NULL)
+        {
+            fprintf(stderr, "\nUnable to open the adapter. %s is not supported\n", g_selected_interface);
+            return -1;
+        }
+        
+        // Send the packet
+        if (pcap_sendpacket(handle, buffer, frame_size) != 0)
+        {
+            fprintf(stderr, "\nError sending the packet: %s\n", pcap_geterr(handle));
+            pcap_close(handle);
+            return -1;
+        }
+        
+        printf("Successfully sent %d bytes (Interface: %s)\n", frame_size, g_selected_interface);
+        
+        pcap_close(handle);
+        return 1;
+    }
+
     // Retrieve the device list
     if (pcap_findalldevs(&alldevs, errbuf) == -1)
     {
@@ -136,6 +174,10 @@ int send_ethernet_frame(uint8_t *buffer, int frame_size)
     
     printf("\nSelected interface: %s\n", device->name);
     
+    // Cache the selected interface name
+    strncpy(g_selected_interface, device->name, IFNAMSIZ - 1);
+    g_selected_interface[IFNAMSIZ - 1] = '\0';
+    
     // Get source MAC address from selected interface
     uint8_t src_mac[6];
     if (get_interface_mac(device->name, src_mac) < 0)
@@ -148,6 +190,10 @@ int send_ethernet_frame(uint8_t *buffer, int frame_size)
     printf("Source MAC: %02X:%02X:%02X:%02X:%02X:%02X\n", 
            src_mac[0], src_mac[1], src_mac[2], 
            src_mac[3], src_mac[4], src_mac[5]);
+           
+    // Cache the source MAC and set flag
+    memcpy(g_cached_src_mac, src_mac, 6);
+    g_interface_selected = 1;
     
     // Update source MAC in the frame buffer
     memcpy(buffer + 6, src_mac, 6);

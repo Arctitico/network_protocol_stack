@@ -15,6 +15,8 @@
 static uint8_t *g_my_mac = NULL;
 static const char *g_output_file = NULL;
 static int g_packet_count = 0;
+static ethernet_recv_callback_t g_upper_layer_callback = NULL;
+static void *g_user_data = NULL;
 
 // Get MAC address of a network interface
 static int get_interface_mac(const char *ifname, uint8_t *mac)
@@ -255,9 +257,22 @@ void packet_handler(unsigned char *user_data, const struct pcap_pkthdr *pkthdr, 
     display_ethernet_header((uint8_t *)packet);
     
     // Extract data
-    if (extract_frame_data((uint8_t *)packet, pkthdr->len, g_output_file) < 0)
+    int data_len = pkthdr->len - ETHERNET_HEADER_SIZE - ETHERNET_CRC_SIZE;
+    uint8_t *data_start = (uint8_t *)packet + ETHERNET_HEADER_SIZE;
+    
+    // If callback is set, use it instead of writing to file
+    if (g_upper_layer_callback != NULL)
     {
-        printf("Error extracting frame data\n");
+        printf("Delivering %d bytes to upper layer via callback\n", data_len);
+        g_upper_layer_callback(data_start, data_len, g_user_data);
+    }
+    else if (g_output_file != NULL)
+    {
+        // Legacy file-based delivery
+        if (extract_frame_data((uint8_t *)packet, pkthdr->len, g_output_file) < 0)
+        {
+            printf("Error extracting frame data\n");
+        }
     }
     
     printf("========================================\n");
@@ -344,7 +359,7 @@ int ethernet_receive(const char *output_file)
     
     if (handle == NULL)
     {
-        fprintf(stderr, "\nUnable to open the adapter. %s is not supported\n", device->name);
+        fprintf(stderr, "\nUnable to open the adapter %s.\nError: %s\n", device->name, errbuf);
         pcap_freealldevs(alldevs);
         return -1;
     }
@@ -399,4 +414,152 @@ int ethernet_receive(const char *output_file)
     pcap_freealldevs(alldevs);
     
     return 1;
+}
+
+/**
+ * Receive and process Ethernet frames with callback
+ */
+int ethernet_receive_callback(ethernet_recv_callback_t callback, void *user_data, int packet_count)
+{
+    pcap_if_t *alldevs;
+    pcap_if_t *device;
+    pcap_t *handle;
+    char errbuf[PCAP_ERRBUF_SIZE];
+    struct bpf_program fcode;
+    bpf_u_int32 netmask;
+    int inum, i = 0;
+    uint8_t local_mac[6];
+    
+    // Set global variables for callback
+    g_upper_layer_callback = callback;
+    g_user_data = user_data;
+    g_output_file = NULL;
+    g_packet_count = 0;
+    
+    // Retrieve the device list
+    if (pcap_findalldevs(&alldevs, errbuf) == -1)
+    {
+        fprintf(stderr, "Error in pcap_findalldevs: %s\n", errbuf);
+        return -1;
+    }
+    
+    // Print the list
+    printf("\n=== Available Network Interfaces ===\n");
+    for (device = alldevs; device != NULL; device = device->next)
+    {
+        printf("%d. %s", ++i, device->name);
+        if (device->description)
+            printf(" (%s)\n", device->description);
+        else
+            printf(" (No description available)\n");
+    }
+    
+    if (i == 0)
+    {
+        printf("\nNo interfaces found! Make sure you have the proper permissions.\n");
+        return -1;
+    }
+    
+    printf("\nEnter the interface number (1-%d): ", i);
+    if (scanf("%d", &inum) != 1)
+    {
+        fprintf(stderr, "Invalid input\n");
+        pcap_freealldevs(alldevs);
+        return -1;
+    }
+    
+    if (inum < 1 || inum > i)
+    {
+        printf("\nInterface number out of range.\n");
+        pcap_freealldevs(alldevs);
+        return -1;
+    }
+    
+    // Jump to the selected adapter
+    for (device = alldevs, i = 0; i < inum - 1; device = device->next, i++);
+    
+    printf("\nSelected interface: %s\n", device->name);
+    
+    // Get local MAC address from selected interface
+    if (get_interface_mac(device->name, local_mac) < 0)
+    {
+        fprintf(stderr, "\nFailed to get MAC address for %s\n", device->name);
+        pcap_freealldevs(alldevs);
+        return -1;
+    }
+    
+    printf("Local MAC: %02X:%02X:%02X:%02X:%02X:%02X\n", 
+           local_mac[0], local_mac[1], local_mac[2], 
+           local_mac[3], local_mac[4], local_mac[5]);
+    
+    // Set global MAC pointer for callback
+    g_my_mac = local_mac;
+    
+    // Open the device
+    handle = pcap_open_live(device->name,      // name of the device
+                            65536,              // portion to capture (entire packet)
+                            1,                  // promiscuous mode
+                            1000,               // read timeout
+                            errbuf);            // error buffer
+    
+    if (handle == NULL)
+    {
+        fprintf(stderr, "\nUnable to open the adapter %s.\nError: %s\n", device->name, errbuf);
+        pcap_freealldevs(alldevs);
+        return -1;
+    }
+    
+    // Check the link layer
+    if (pcap_datalink(handle) != DLT_EN10MB)
+    {
+        fprintf(stderr, "\nThis program works only on Ethernet networks.\n");
+        pcap_close(handle);
+        pcap_freealldevs(alldevs);
+        return -1;
+    }
+    
+    // Get the netmask
+    netmask = 0xffffff;
+    
+    // Compile the filter
+    char filter_exp[256];
+    snprintf(filter_exp, sizeof(filter_exp),
+             "ether dst %02x:%02x:%02x:%02x:%02x:%02x or ether broadcast",
+             local_mac[0], local_mac[1], local_mac[2], local_mac[3], local_mac[4], local_mac[5]);
+    
+    printf("\nSetting filter: %s\n", filter_exp);
+    
+    if (pcap_compile(handle, &fcode, filter_exp, 1, netmask) < 0)
+    {
+        fprintf(stderr, "\nUnable to compile the packet filter. Check the syntax.\n");
+        pcap_close(handle);
+        pcap_freealldevs(alldevs);
+        return -1;
+    }
+    
+    // Set the filter
+    if (pcap_setfilter(handle, &fcode) < 0)
+    {
+        fprintf(stderr, "\nError setting the filter.\n");
+        pcap_close(handle);
+        pcap_freealldevs(alldevs);
+        return -1;
+    }
+    
+    printf("\nListening on %s...\n", device->name);
+    printf("Waiting for Ethernet frames (Press Ctrl+C to stop)...\n");
+    
+    // Start the capture
+    int captured = pcap_loop(handle, packet_count, packet_handler, NULL);
+    
+    printf("\nCapture finished. Total packets received: %d\n", g_packet_count);
+    
+    pcap_close(handle);
+    pcap_freealldevs(alldevs);
+    
+    // Reset callback
+    g_upper_layer_callback = NULL;
+    g_user_data = NULL;
+    
+    return captured;
 }

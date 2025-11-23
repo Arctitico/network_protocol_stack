@@ -49,11 +49,31 @@ void display_ethernet_header(uint8_t *buffer);
 int extract_frame_data(uint8_t *buffer, int frame_size, const char *output_file);
 
 /**
+ * @brief Callback function type for upper layer processing
+ * 
+ * @param data Pointer to extracted data (upper layer payload)
+ * @param data_len Length of extracted data
+ * @param user_data User-defined data passed to callback
+ * @return int Return value from callback (implementation-defined)
+ */
+typedef int (*ethernet_recv_callback_t)(uint8_t *data, int data_len, void *user_data);
+
+/**
  * @brief Receive and process Ethernet frame from network interface
  * 
- * @param output_file Path to output file for upper layer data
+ * @param output_file Path to output file for upper layer data (NULL if using callback)
  * @return int 1 on success, 0 if discarded, -1 on error
  */
 int ethernet_receive(const char *output_file);
+
+/**
+ * @brief Receive and process Ethernet frames with callback
+ * 
+ * @param callback Function to call when frame is received
+ * @param user_data User data to pass to callback
+ * @param packet_count Number of packets to capture (0 for infinite)
+ * @return int Number of packets processed, or -1 on error
+ */
+int ethernet_receive_callback(ethernet_recv_callback_t callback, void *user_data, int packet_count);
 
 #endif /* ETHERNET_RECV_H */

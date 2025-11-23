@@ -1,63 +1,46 @@
-## 当前实现状态
+# 网络协议栈实现
 
-- 数据链路层（以太网）: 已完成
-- 网络层: 未实现
-- 传输层: 未实现
-- 应用层: 未实现
-
-详细使用说明见 `ethernet/README.md`
-
-## 环境要求
-
-- Linux/WSL (Ubuntu)
-- GCC 编译器
-- libpcap 开发库
-- root 权限（访问网卡）
-
-## 安装依赖
-
-```bash
-sudo apt-get update
-sudo apt-get install -y build-essential libpcap-dev
-```
+这是一个在用户空间实现的 C 语言网络协议栈，目前包含以太网（数据链路层）和 IPv4（网络层）。
 
 ## 项目结构
 
-```
-C_NETWORK/
-├── Makefile                    # 根目录构建文件
-├── README.md                   # 本文档
-├── ethernet/                   # 数据链路层实现
-│   ├── Makefile
-│   ├── README.md              # 数据链路层说明
-│   ├── include/               # 头文件
-│   ├── src/                   # 源代码
-│   ├── data/                  # 输入数据和帧文件
-│   ├── output/                # 输出数据（交付给上层）
-│   └── build/                 # 编译生成的目标文件
-└── reference/                  # 参考资料
-```
+- `ethernet/`: 数据链路层 (基于 libpcap)
+- `ip/`: 网络层 (IPv4, 分片/重组)
 
-## 编译
+## 前置要求
 
+- Linux 环境
+- GCC 编译器
+- GNU Make
+- libpcap 开发头文件 (`sudo apt-get install libpcap-dev`)
+
+## 快速开始
+
+### 1. 编译所有内容
 ```bash
-# 编译所有层
 make
+```
 
-# 或单独编译数据链路层
-cd ethernet
-make
+### 2. 运行协议栈
+
+**终端 1 (接收端):**
+```bash
+cd ip
+sudo ./ip_recv
+# 选择一个网络接口 (例如 'lo' 用于本地测试)
+# 记下显示的本地 MAC 地址
+```
+
+**终端 2 (发送端):**
+```bash
+cd ip
+sudo ./ip_send
+# 输入目标 MAC 地址 (从终端 1 获取)
 ```
 
 ## 清理
-
 ```bash
-# 清理构建文件
 make clean
-
-# 清理所有生成文件（包括数据）
-cd ethernet
-make cleanall
 ```
 
 
