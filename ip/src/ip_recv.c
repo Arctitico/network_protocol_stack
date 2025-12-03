@@ -6,6 +6,9 @@
 #include "ip_recv.h"
 #include "../../ethernet/include/ethernet_recv.h"
 #include "../../ethernet/include/ethernet.h"
+#include "../../arp/include/arp.h"
+#include "../../arp/include/arp_recv.h"
+#include "../../arp/include/arp_send.h"
 
 #define MAX_FRAGMENTS 10
 #define FRAGMENT_TIMEOUT 30  // 30 seconds
@@ -18,6 +21,10 @@ static int g_fragment_count = 0;
 static const char *g_local_ip = NULL;
 static const char *g_output_file = NULL;
 static int g_packet_processed = 0;
+
+// Global ARP context
+static network_config_t *g_net_config = NULL;
+static arp_cache_t *g_arp_cache = NULL;
 
 /**
  * Verify IP header checksum
@@ -332,7 +339,28 @@ static int ethernet_callback_handler(uint8_t *data, int data_len, void *user_dat
     (void)user_data;  // Unused
     
     printf("\n========== Received from Ethernet Layer ==========\n");
-    printf("IP packet length: %d bytes\n", data_len);
+    printf("Data length: %d bytes\n", data_len);
+    
+    // Check if this is an ARP packet by looking at the hardware type field
+    // ARP starts with hardware type 0x0001 (Ethernet)
+    // IP starts with version/IHL byte where version = 4 (0x4X)
+    if (data_len >= 2 && data[0] == 0x00 && data[1] == 0x01)
+    {
+        printf("Detected ARP packet - processing...\n");
+        
+        // Process ARP packet if we have config
+        if (g_net_config != NULL && g_arp_cache != NULL)
+        {
+            arp_process_packet(data, data_len, g_net_config, g_arp_cache);
+        }
+        else
+        {
+            printf("ARP context not initialized, skipping\n");
+        }
+        return 0;  // Handled
+    }
+    
+    printf("Processing as IP packet...\n");
     
     int result = process_ip_packet(data, data_len, g_local_ip, g_output_file);
     
@@ -365,9 +393,20 @@ int ip_receive(const char *local_ip, const char *output_file)
     // Start receiving via Ethernet layer with callback
     int result = ethernet_receive_callback(ethernet_callback_handler, NULL, 0);
     
+    
     printf("\n==========================================\n");
     printf("Total IP packets processed: %d\n", g_packet_processed);
     printf("==========================================\n");
     
     return result;
+}
+
+/**
+ * Set ARP context for IP receiver (enables ARP response)
+ */
+void ip_recv_set_arp_context(network_config_t *config, arp_cache_t *cache)
+{
+    g_net_config = config;
+    g_arp_cache = cache;
+    printf("ARP context set for IP receiver\n");
 }

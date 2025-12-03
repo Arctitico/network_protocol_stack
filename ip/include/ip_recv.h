@@ -62,4 +62,18 @@ int process_ip_packet(uint8_t *ip_packet, int packet_len,
  */
 int ip_receive(const char *local_ip, const char *output_file);
 
+/* Forward declaration for ARP types */
+struct network_config;
+struct arp_cache;
+
+/**
+ * @brief Set ARP context for IP receiver
+ * 
+ * When set, the IP receiver will respond to ARP requests
+ * 
+ * @param config Network configuration (includes local IP and MAC)
+ * @param cache ARP cache for storing learned addresses
+ */
+void ip_recv_set_arp_context(struct network_config *config, struct arp_cache *cache);
+
 #endif /* IP_RECV_H */

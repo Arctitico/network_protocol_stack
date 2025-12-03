@@ -9,10 +9,12 @@
 #include <unistd.h>
 #include "ethernet_recv.h"
 #include "ethernet.h"
+#include "ethernet_send.h"
 #include "crc32.h"
 
 // Global variables for packet callback
 static uint8_t *g_my_mac = NULL;
+static uint8_t g_cached_local_mac[6] = {0};  // Cached MAC address
 static const char *g_output_file = NULL;
 static int g_packet_count = 0;
 static ethernet_recv_callback_t g_upper_layer_callback = NULL;
@@ -70,19 +72,19 @@ int verify_frame(uint8_t *buffer, int frame_size, uint8_t *my_mac)
 {
     ethernet_header_t *header = (ethernet_header_t *)buffer;
     
-    // Check minimum frame size
-    if (frame_size < ETHERNET_MIN_FRAME_SIZE)
+    // Check minimum frame size (pcap doesn't include CRC, so use 60 bytes)
+    if (frame_size < ETHERNET_MIN_FRAME_SIZE_NO_CRC)
     {
         printf("Frame discarded: Too small (%d bytes < %d bytes)\n", 
-               frame_size, ETHERNET_MIN_FRAME_SIZE);
+               frame_size, ETHERNET_MIN_FRAME_SIZE_NO_CRC);
         return 0;
     }
     
-    // Check maximum frame size
-    if (frame_size > ETHERNET_MAX_FRAME_SIZE)
+    // Check maximum frame size (pcap doesn't include CRC, so use 1514 bytes)
+    if (frame_size > ETHERNET_MAX_FRAME_SIZE_NO_CRC)
     {
         printf("Frame discarded: Too large (%d bytes > %d bytes)\n", 
-               frame_size, ETHERNET_MAX_FRAME_SIZE);
+               frame_size, ETHERNET_MAX_FRAME_SIZE_NO_CRC);
         return 0;
     }
     
@@ -99,29 +101,19 @@ int verify_frame(uint8_t *buffer, int frame_size, uint8_t *my_mac)
         return 0;
     }
     
-    // Calculate data length
-    int data_len = frame_size - ETHERNET_HEADER_SIZE - ETHERNET_CRC_SIZE;
+    // Calculate data length (pcap doesn't include CRC)
+    int data_len = frame_size - ETHERNET_HEADER_SIZE;
     
-    // Check data length
-    if (data_len < ETHERNET_MIN_DATA_SIZE || data_len > ETHERNET_MAX_DATA_SIZE)
+    // Check data length (allow minimum of 28 bytes for ARP, max is MTU 1500)
+    // Note: Ethernet padding may be present for frames < 60 bytes total
+    if (data_len < 0 || data_len > ETHERNET_MAX_DATA_SIZE)
     {
         printf("Frame discarded: Invalid data length (%d bytes)\n", data_len);
         return 0;
     }
     
-    // Verify CRC
-    uint8_t *data_start = buffer + ETHERNET_HEADER_SIZE;
-    uint32_t calculated_crc = calculate_crc32(data_start, data_len);
-    uint32_t received_crc;
-    memcpy(&received_crc, data_start + data_len, ETHERNET_CRC_SIZE);
-    
-    if (calculated_crc != received_crc)
-    {
-        printf("Frame discarded: CRC mismatch\n");
-        printf("  Calculated CRC: 0x%08X\n", calculated_crc);
-        printf("  Received CRC:   0x%08X\n", received_crc);
-        return 0;
-    }
+    // Note: We skip CRC verification since pcap doesn't capture the FCS
+    // The NIC already verified the CRC before passing the frame to the OS
     
     return 1;
 }
@@ -347,8 +339,12 @@ int ethernet_receive(const char *output_file)
            local_mac[0], local_mac[1], local_mac[2], 
            local_mac[3], local_mac[4], local_mac[5]);
     
-    // Set global MAC pointer for callback
-    g_my_mac = local_mac;
+    // Cache the MAC address and set global pointer
+    memcpy(g_cached_local_mac, local_mac, 6);
+    g_my_mac = g_cached_local_mac;
+    
+    // Notify ethernet_send module about the selected interface
+    ethernet_send_set_interface(device->name, local_mac);
     
     // Open the device
     handle = pcap_open_live(device->name,      // name of the device
@@ -421,7 +417,7 @@ int ethernet_receive(const char *output_file)
  */
 int ethernet_receive_callback(ethernet_recv_callback_t callback, void *user_data, int packet_count)
 {
-    pcap_if_t *alldevs;
+    pcap_if_t *alldevs = NULL;
     pcap_if_t *device;
     pcap_t *handle;
     char errbuf[PCAP_ERRBUF_SIZE];
@@ -429,6 +425,7 @@ int ethernet_receive_callback(ethernet_recv_callback_t callback, void *user_data
     bpf_u_int32 netmask;
     int inum, i = 0;
     uint8_t local_mac[6];
+    const char *interface_to_use = NULL;
     
     // Set global variables for callback
     g_upper_layer_callback = callback;
@@ -436,67 +433,90 @@ int ethernet_receive_callback(ethernet_recv_callback_t callback, void *user_data
     g_output_file = NULL;
     g_packet_count = 0;
     
-    // Retrieve the device list
-    if (pcap_findalldevs(&alldevs, errbuf) == -1)
+    // Check if interface is already pre-selected
+    if (ethernet_send_is_interface_selected())
     {
-        fprintf(stderr, "Error in pcap_findalldevs: %s\n", errbuf);
-        return -1;
+        interface_to_use = ethernet_send_get_interface();
+        ethernet_send_get_src_mac(local_mac);
+        
+        // Cache the MAC address and set global pointer
+        memcpy(g_cached_local_mac, local_mac, 6);
+        g_my_mac = g_cached_local_mac;
+        
+        printf("\nUsing pre-selected interface: %s\n", interface_to_use);
+        printf("Local MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
+               local_mac[0], local_mac[1], local_mac[2],
+               local_mac[3], local_mac[4], local_mac[5]);
     }
-    
-    // Print the list
-    printf("\n=== Available Network Interfaces ===\n");
-    for (device = alldevs; device != NULL; device = device->next)
+    else
     {
-        printf("%d. %s", ++i, device->name);
-        if (device->description)
-            printf(" (%s)\n", device->description);
-        else
-            printf(" (No description available)\n");
+        // Retrieve the device list
+        if (pcap_findalldevs(&alldevs, errbuf) == -1)
+        {
+            fprintf(stderr, "Error in pcap_findalldevs: %s\n", errbuf);
+            return -1;
+        }
+        
+        // Print the list
+        printf("\n=== Available Network Interfaces ===\n");
+        for (device = alldevs; device != NULL; device = device->next)
+        {
+            printf("%d. %s", ++i, device->name);
+            if (device->description)
+                printf(" (%s)\n", device->description);
+            else
+                printf(" (No description available)\n");
+        }
+        
+        if (i == 0)
+        {
+            printf("\nNo interfaces found! Make sure you have the proper permissions.\n");
+            return -1;
+        }
+        
+        printf("\nEnter the interface number (1-%d): ", i);
+        if (scanf("%d", &inum) != 1)
+        {
+            fprintf(stderr, "Invalid input\n");
+            pcap_freealldevs(alldevs);
+            return -1;
+        }
+        
+        if (inum < 1 || inum > i)
+        {
+            printf("\nInterface number out of range.\n");
+            pcap_freealldevs(alldevs);
+            return -1;
+        }
+        
+        // Jump to the selected adapter
+        for (device = alldevs, i = 0; i < inum - 1; device = device->next, i++);
+        
+        interface_to_use = device->name;
+        printf("\nSelected interface: %s\n", device->name);
+        
+        // Get local MAC address from selected interface
+        if (get_interface_mac(device->name, local_mac) < 0)
+        {
+            fprintf(stderr, "\nFailed to get MAC address for %s\n", device->name);
+            pcap_freealldevs(alldevs);
+            return -1;
+        }
+        
+        printf("Local MAC: %02X:%02X:%02X:%02X:%02X:%02X\n", 
+               local_mac[0], local_mac[1], local_mac[2], 
+               local_mac[3], local_mac[4], local_mac[5]);
+        
+        // Cache the MAC address and set global pointer
+        memcpy(g_cached_local_mac, local_mac, 6);
+        g_my_mac = g_cached_local_mac;
+        
+        // Notify ethernet_send module about the selected interface
+        ethernet_send_set_interface(device->name, local_mac);
     }
-    
-    if (i == 0)
-    {
-        printf("\nNo interfaces found! Make sure you have the proper permissions.\n");
-        return -1;
-    }
-    
-    printf("\nEnter the interface number (1-%d): ", i);
-    if (scanf("%d", &inum) != 1)
-    {
-        fprintf(stderr, "Invalid input\n");
-        pcap_freealldevs(alldevs);
-        return -1;
-    }
-    
-    if (inum < 1 || inum > i)
-    {
-        printf("\nInterface number out of range.\n");
-        pcap_freealldevs(alldevs);
-        return -1;
-    }
-    
-    // Jump to the selected adapter
-    for (device = alldevs, i = 0; i < inum - 1; device = device->next, i++);
-    
-    printf("\nSelected interface: %s\n", device->name);
-    
-    // Get local MAC address from selected interface
-    if (get_interface_mac(device->name, local_mac) < 0)
-    {
-        fprintf(stderr, "\nFailed to get MAC address for %s\n", device->name);
-        pcap_freealldevs(alldevs);
-        return -1;
-    }
-    
-    printf("Local MAC: %02X:%02X:%02X:%02X:%02X:%02X\n", 
-           local_mac[0], local_mac[1], local_mac[2], 
-           local_mac[3], local_mac[4], local_mac[5]);
-    
-    // Set global MAC pointer for callback
-    g_my_mac = local_mac;
     
     // Open the device
-    handle = pcap_open_live(device->name,      // name of the device
+    handle = pcap_open_live(interface_to_use,   // name of the device
                             65536,              // portion to capture (entire packet)
                             1,                  // promiscuous mode
                             1000,               // read timeout
@@ -504,8 +524,8 @@ int ethernet_receive_callback(ethernet_recv_callback_t callback, void *user_data
     
     if (handle == NULL)
     {
-        fprintf(stderr, "\nUnable to open the adapter %s.\nError: %s\n", device->name, errbuf);
-        pcap_freealldevs(alldevs);
+        fprintf(stderr, "\nUnable to open the adapter %s.\nError: %s\n", interface_to_use, errbuf);
+        if (alldevs) pcap_freealldevs(alldevs);
         return -1;
     }
     
@@ -514,7 +534,7 @@ int ethernet_receive_callback(ethernet_recv_callback_t callback, void *user_data
     {
         fprintf(stderr, "\nThis program works only on Ethernet networks.\n");
         pcap_close(handle);
-        pcap_freealldevs(alldevs);
+        if (alldevs) pcap_freealldevs(alldevs);
         return -1;
     }
     
@@ -533,7 +553,7 @@ int ethernet_receive_callback(ethernet_recv_callback_t callback, void *user_data
     {
         fprintf(stderr, "\nUnable to compile the packet filter. Check the syntax.\n");
         pcap_close(handle);
-        pcap_freealldevs(alldevs);
+        if (alldevs) pcap_freealldevs(alldevs);
         return -1;
     }
     
@@ -542,12 +562,15 @@ int ethernet_receive_callback(ethernet_recv_callback_t callback, void *user_data
     {
         fprintf(stderr, "\nError setting the filter.\n");
         pcap_close(handle);
-        pcap_freealldevs(alldevs);
+        if (alldevs) pcap_freealldevs(alldevs);
         return -1;
     }
     
-    printf("\nListening on %s...\n", device->name);
+    printf("\nListening on %s...\n", interface_to_use);
     printf("Waiting for Ethernet frames (Press Ctrl+C to stop)...\n");
+    
+    // Free alldevs now if it was allocated
+    if (alldevs) pcap_freealldevs(alldevs);
     
     // Start the capture
     int captured = pcap_loop(handle, packet_count, packet_handler, NULL);
@@ -555,7 +578,6 @@ int ethernet_receive_callback(ethernet_recv_callback_t callback, void *user_data
     printf("\nCapture finished. Total packets received: %d\n", g_packet_count);
     
     pcap_close(handle);
-    pcap_freealldevs(alldevs);
     
     // Reset callback
     g_upper_layer_callback = NULL;

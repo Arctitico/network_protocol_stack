@@ -45,6 +45,56 @@ static uint8_t g_cached_src_mac[6] = {0};
 static int g_interface_selected = 0;
 
 /**
+ * Set the cached interface for sending
+ */
+void ethernet_send_set_interface(const char *ifname, const uint8_t *src_mac)
+{
+    if (ifname != NULL)
+    {
+        strncpy(g_selected_interface, ifname, IFNAMSIZ - 1);
+        g_selected_interface[IFNAMSIZ - 1] = '\0';
+    }
+    if (src_mac != NULL)
+    {
+        memcpy(g_cached_src_mac, src_mac, 6);
+    }
+    g_interface_selected = 1;
+}
+
+/**
+ * Get the cached interface name
+ */
+const char* ethernet_send_get_interface(void)
+{
+    if (g_interface_selected)
+    {
+        return g_selected_interface;
+    }
+    return NULL;
+}
+
+/**
+ * Get the cached source MAC address
+ */
+int ethernet_send_get_src_mac(uint8_t *mac)
+{
+    if (g_interface_selected && mac != NULL)
+    {
+        memcpy(mac, g_cached_src_mac, 6);
+        return 1;
+    }
+    return 0;
+}
+
+/**
+ * Check if interface is already selected
+ */
+int ethernet_send_is_interface_selected(void)
+{
+    return g_interface_selected;
+}
+
+/**
  * Load Ethernet header into frame buffer
  */
 void load_ethernet_header(uint8_t *buffer, uint8_t *dest_mac, uint8_t *src_mac, uint16_t ethernet_type)

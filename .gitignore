@@ -32,5 +32,6 @@ reports/
 Thumbs.db
 
 # Temporary files
+temp.txt
 *.tmp
 *~

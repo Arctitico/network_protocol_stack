@@ -46,4 +46,34 @@ int send_ethernet_frame(uint8_t *buffer, int frame_size);
 int ethernet_send(uint8_t *data, int data_len, 
                   uint8_t *dest_mac, uint8_t *src_mac, uint16_t ethernet_type);
 
+/**
+ * @brief Set the cached interface for sending
+ * 
+ * @param ifname Interface name to cache
+ * @param src_mac Source MAC address of the interface
+ */
+void ethernet_send_set_interface(const char *ifname, const uint8_t *src_mac);
+
+/**
+ * @brief Get the cached interface name
+ * 
+ * @return const char* Cached interface name, or NULL if not set
+ */
+const char* ethernet_send_get_interface(void);
+
+/**
+ * @brief Get the cached source MAC address
+ * 
+ * @param mac Buffer to copy MAC address to (6 bytes)
+ * @return int 1 if interface is set, 0 otherwise
+ */
+int ethernet_send_get_src_mac(uint8_t *mac);
+
+/**
+ * @brief Check if interface is already selected
+ * 
+ * @return int 1 if interface is selected, 0 otherwise
+ */
+int ethernet_send_is_interface_selected(void);
+
 #endif /* ETHERNET_SEND_H */

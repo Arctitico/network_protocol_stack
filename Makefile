@@ -1,4 +1,4 @@
-# Industrial Ethernet Protocol Stack - Root Makefile
+# Root Makefile
 
 .PHONY: all clean ethernet ip help
 

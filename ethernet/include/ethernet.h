@@ -9,7 +9,9 @@
 #define ETHERNET_MIN_DATA_SIZE  46      // Minimum data size
 #define ETHERNET_MAX_DATA_SIZE  1500    // Maximum data size (MTU)
 #define ETHERNET_MIN_FRAME_SIZE 64      // Minimum frame size (including CRC)
+#define ETHERNET_MIN_FRAME_SIZE_NO_CRC 60  // Minimum frame size without CRC (for pcap)
 #define ETHERNET_MAX_FRAME_SIZE 1518    // Maximum frame size (including CRC)
+#define ETHERNET_MAX_FRAME_SIZE_NO_CRC 1514  // Maximum frame size without CRC (for pcap)
 #define MAX_FRAME_BUFFER_SIZE   2048    // Buffer size for frame operations
 
 /* Ethernet Type field values */

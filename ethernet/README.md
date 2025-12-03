@@ -28,4 +28,3 @@ sudo ./ethernet_recv [输出文件]
 sudo ./ethernet_send [输入文件]
 # 默认输入: data/input.txt
 ```
-

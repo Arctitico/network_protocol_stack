@@ -14,7 +14,7 @@ OUTPUT_DIR = output
 # Source files
 COMMON_SRCS = $(SRC_DIR)/crc32.c
 SEND_SRCS = $(COMMON_SRCS) $(SRC_DIR)/ethernet_send.c $(SRC_DIR)/send_main.c
-RECV_SRCS = $(COMMON_SRCS) $(SRC_DIR)/ethernet_recv.c $(SRC_DIR)/recv_main.c
+RECV_SRCS = $(COMMON_SRCS) $(SRC_DIR)/ethernet_send.c $(SRC_DIR)/ethernet_recv.c $(SRC_DIR)/recv_main.c
 
 # Object files
 SEND_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SEND_SRCS))
