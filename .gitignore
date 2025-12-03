@@ -11,6 +11,10 @@ build/
 # Executables
 ethernet_send
 ethernet_recv
+arp_send
+arp_recv
+ip_send
+ip_recv
 
 # Output files
 output/
