@@ -91,14 +91,27 @@ int arp_receive(network_config_t *config, arp_cache_t *cache);
 void arp_set_reply_callback(arp_reply_callback_t callback, void *user_data);
 
 /**
+ * @brief Initialize ARP context for Ethernet integration
+ * 
+ * Sets up the ARP module's internal context so that arp_ethernet_callback
+ * can process ARP packets when called by the Ethernet layer.
+ * 
+ * @param config Network configuration (local IP/MAC)
+ * @param cache ARP cache to use for storing learned addresses
+ */
+void arp_init_context(network_config_t *config, arp_cache_t *cache);
+
+/**
  * @brief Ethernet callback for ARP processing
  * 
- * This function is called by the Ethernet layer when an ARP frame is received
+ * This function is called by the Ethernet layer when an ARP frame is received.
+ * Must call arp_init_context() before using this callback.
  * 
  * @param data ARP packet data (payload from Ethernet frame)
  * @param data_len Length of ARP packet
- * @param user_data User context (contains network_config and arp_cache)
+ * @param user_data User context (unused, uses internal context)
+ * @return int 1 if processed, 0 otherwise
  */
-void arp_ethernet_callback(uint8_t *data, int data_len, void *user_data);
+int arp_ethernet_callback(uint8_t *data, int data_len, void *user_data);
 
 #endif /* ARP_RECV_H */

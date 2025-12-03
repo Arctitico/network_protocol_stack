@@ -221,27 +221,24 @@ int main(int argc, char *argv[])
     
     arp_cache_init(&arp_cache);
     
-    // Set ARP context for IP receiver
-    ip_recv_set_arp_context(&net_config, &arp_cache);
-    
     LOG_INFO(&g_ip_logger, "Waiting for IP packets on %s (IP: %s)...", selected_if, local_ip);
     LOG_INFO(&g_ip_logger, "Press Ctrl+C to stop");
     
     printf("\nWaiting for IP packets...\n");
     
-    // Receive and process IP packet via Ethernet layer
-    int result = ip_receive(local_ip, output_file);
+    // Start integrated network stack (Ethernet + IP + ARP)
+    int result = network_stack_receive(local_ip, output_file, &net_config, &arp_cache, 0);
     
     if (result < 0)
     {
-        LOG_ERROR(&g_ip_logger, "Error occurred while receiving IP packet");
+        LOG_ERROR(&g_ip_logger, "Error occurred while receiving packets");
         ip_logger_close();
         arp_logger_close();
         return 1;
     }
     
     LOG_INFO(&g_ip_logger, "========================================");
-    LOG_INFO(&g_ip_logger, "IP receiver stopped");
+    LOG_INFO(&g_ip_logger, "Network stack receiver stopped");
     LOG_INFO(&g_ip_logger, "========================================");
     
     // Display final ARP cache

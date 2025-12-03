@@ -27,10 +27,6 @@ static const char *g_local_ip = NULL;
 static const char *g_output_file = NULL;
 static int g_packet_processed = 0;
 
-// Global ARP context
-static network_config_t *g_net_config = NULL;
-static arp_cache_t *g_arp_cache = NULL;
-
 /**
  * Verify IP header checksum
  */
@@ -337,35 +333,14 @@ int process_ip_packet(uint8_t *ip_packet, int packet_len,
 }
 
 /**
- * Callback function for Ethernet layer
+ * Ethernet callback for IP processing (internal)
  */
-static int ethernet_callback_handler(uint8_t *data, int data_len, void *user_data)
+static int ip_ethernet_callback(uint8_t *data, int data_len, void *user_data)
 {
-    (void)user_data;  // Unused
+    (void)user_data;
     
-    LOG_INFO(&g_ip_logger, "========== Received from Ethernet Layer ==========");
+    LOG_INFO(&g_ip_logger, "========== IP Packet from Ethernet Layer ==========");
     LOG_DEBUG(&g_ip_logger, "Data length: %d bytes", data_len);
-    
-    // Check if this is an ARP packet by looking at the hardware type field
-    // ARP starts with hardware type 0x0001 (Ethernet)
-    // IP starts with version/IHL byte where version = 4 (0x4X)
-    if (data_len >= 2 && data[0] == 0x00 && data[1] == 0x01)
-    {
-        LOG_DEBUG(&g_ip_logger, "Detected ARP packet - processing...");
-        
-        // Process ARP packet if we have config
-        if (g_net_config != NULL && g_arp_cache != NULL)
-        {
-            arp_process_packet(data, data_len, g_net_config, g_arp_cache);
-        }
-        else
-        {
-            LOG_WARN(&g_ip_logger, "ARP context not initialized, skipping");
-        }
-        return 0;  // Handled
-    }
-    
-    LOG_DEBUG(&g_ip_logger, "Processing as IP packet...");
     
     int result = process_ip_packet(data, data_len, g_local_ip, g_output_file);
     
@@ -379,40 +354,71 @@ static int ethernet_callback_handler(uint8_t *data, int data_len, void *user_dat
 }
 
 /**
- * Start IP receiver via Ethernet layer
+ * Initialize IP receiver context (internal)
  */
-int ip_receive(const char *local_ip, const char *output_file)
+static void ip_recv_init(const char *local_ip, const char *output_file)
 {
-    LOG_INFO(&g_ip_logger, "========== IP Layer - Receiving ==========");
-    LOG_INFO(&g_ip_logger, "Output file: %s", output_file);
-    LOG_INFO(&g_ip_logger, "Local IP:    %s", local_ip);
-    LOG_INFO(&g_ip_logger, "==========================================");
-    
-    // Set global variables
     g_local_ip = local_ip;
     g_output_file = output_file;
     g_packet_processed = 0;
-    
-    LOG_INFO(&g_ip_logger, "Starting Ethernet layer reception...");
-    LOG_INFO(&g_ip_logger, "Waiting for IP packets (Press Ctrl+C to stop)...");
-    
-    // Start receiving via Ethernet layer with callback
-    int result = ethernet_receive_callback(ethernet_callback_handler, NULL, 0);
-    
-    
-    LOG_INFO(&g_ip_logger, "==========================================");
-    LOG_INFO(&g_ip_logger, "Total IP packets processed: %d", g_packet_processed);
-    LOG_INFO(&g_ip_logger, "==========================================");
-    
-    return result;
+    LOG_INFO(&g_ip_logger, "IP receiver context initialized");
+    LOG_INFO(&g_ip_logger, "  Local IP: %s", local_ip);
+    LOG_INFO(&g_ip_logger, "  Output:   %s", output_file);
 }
 
 /**
- * Set ARP context for IP receiver (enables ARP response)
+ * Start integrated network stack receiver
  */
-void ip_recv_set_arp_context(network_config_t *config, arp_cache_t *cache)
+int network_stack_receive(const char *local_ip, const char *output_file,
+                          network_config_t *net_config, 
+                          arp_cache_t *arp_cache,
+                          int packet_count)
 {
-    g_net_config = config;
-    g_arp_cache = cache;
-    LOG_DEBUG(&g_ip_logger, "ARP context set for IP receiver");
+    LOG_INFO(&g_ip_logger, "========================================");
+    LOG_INFO(&g_ip_logger, "  Network Stack - Integrated Receiver");
+    LOG_INFO(&g_ip_logger, "========================================");
+    LOG_INFO(&g_ip_logger, "Local IP:    %s", local_ip);
+    LOG_INFO(&g_ip_logger, "Output file: %s", output_file);
+    LOG_INFO(&g_ip_logger, "========================================");
+    
+    // Initialize IP context
+    ip_recv_init(local_ip, output_file);
+    
+    // Initialize ARP context
+    arp_init_context(net_config, arp_cache);
+    
+    // Register protocol handlers with Ethernet layer
+    ethernet_clear_protocols();
+    
+    // Register IPv4 handler (EtherType 0x0800)
+    if (ethernet_register_protocol(ETHERNET_TYPE_IPV4, ip_ethernet_callback, NULL) < 0)
+    {
+        LOG_ERROR(&g_ip_logger, "Failed to register IPv4 protocol handler");
+        return -1;
+    }
+    
+    // Register ARP handler (EtherType 0x0806)
+    if (ethernet_register_protocol(ETHERNET_TYPE_ARP, 
+                                   (ethernet_recv_callback_t)arp_ethernet_callback, NULL) < 0)
+    {
+        LOG_ERROR(&g_ip_logger, "Failed to register ARP protocol handler");
+        return -1;
+    }
+    
+    LOG_INFO(&g_ip_logger, "Protocol handlers registered:");
+    LOG_INFO(&g_ip_logger, "  - IPv4 (0x0800)");
+    LOG_INFO(&g_ip_logger, "  - ARP  (0x0806)");
+    LOG_INFO(&g_ip_logger, "Starting Ethernet dispatch...");
+    
+    // Start Ethernet layer in dispatch mode
+    int result = ethernet_receive_dispatch(packet_count);
+    
+    LOG_INFO(&g_ip_logger, "========================================");
+    LOG_INFO(&g_ip_logger, "Total IP packets processed: %d", g_packet_processed);
+    LOG_INFO(&g_ip_logger, "========================================");
+    
+    // Clean up protocol handlers
+    ethernet_clear_protocols();
+    
+    return result;
 }

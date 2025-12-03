@@ -202,9 +202,19 @@ int arp_process_packet(const uint8_t *buffer, int len,
 }
 
 /**
+ * Initialize ARP context for Ethernet integration
+ */
+void arp_init_context(network_config_t *config, arp_cache_t *cache)
+{
+    g_config = config;
+    g_cache = cache;
+    LOG_INFO(&g_arp_logger, "ARP context initialized");
+}
+
+/**
  * Ethernet callback for ARP processing
  */
-void arp_ethernet_callback(uint8_t *data, int data_len, void *user_data)
+int arp_ethernet_callback(uint8_t *data, int data_len, void *user_data)
 {
     (void)user_data;
     
@@ -212,9 +222,10 @@ void arp_ethernet_callback(uint8_t *data, int data_len, void *user_data)
     LOG_INFO(&g_arp_logger, "ARP packet received from Ethernet layer");
     LOG_DEBUG(&g_arp_logger, "Packet size: %d bytes", data_len);
     
+    int result = 0;
     if (g_config != NULL && g_cache != NULL)
     {
-        arp_process_packet(data, data_len, g_config, g_cache);
+        result = arp_process_packet(data, data_len, g_config, g_cache);
     }
     else
     {
@@ -222,6 +233,7 @@ void arp_ethernet_callback(uint8_t *data, int data_len, void *user_data)
     }
     
     LOG_INFO(&g_arp_logger, "========================================");
+    return result;
 }
 
 /**
