@@ -4,11 +4,16 @@
 #include <arpa/inet.h>
 #include <time.h>
 #include "ip_recv.h"
+#include "ip_send.h"
 #include "../../ethernet/include/ethernet_recv.h"
 #include "../../ethernet/include/ethernet.h"
 #include "../../arp/include/arp.h"
 #include "../../arp/include/arp_recv.h"
 #include "../../arp/include/arp_send.h"
+#include "../../common/include/logger.h"
+
+/* Use the global IP logger from ip_send.c */
+extern logger_t g_ip_logger;
 
 #define MAX_FRAGMENTS 10
 #define FRAGMENT_TIMEOUT 30  // 30 seconds
@@ -72,18 +77,18 @@ int check_destination_ip(struct in_addr dest_ip, const char *local_ip)
     // Check if broadcast
     if (strcmp(dest_ip_str, "255.255.255.255") == 0)
     {
-        printf("  -> Broadcast address\n");
+        LOG_DEBUG(&g_ip_logger, "  -> Broadcast address");
         return 1;
     }
     
     // Check if matches local IP
     if (strcmp(dest_ip_str, local_ip) == 0)
     {
-        printf("  -> Matches local IP\n");
+        LOG_DEBUG(&g_ip_logger, "  -> Matches local IP");
         return 1;
     }
     
-    printf("  -> Does NOT match local IP (%s)\n", local_ip);
+    LOG_DEBUG(&g_ip_logger, "  -> Does NOT match local IP (%s)", local_ip);
     return 0;
 }
 
@@ -107,37 +112,37 @@ void display_ip_header(ip_header_t *header)
     int mf = (flags_offset & IP_FLAG_MF) ? 1 : 0;
     int df = (flags_offset & IP_FLAG_DF) ? 1 : 0;
     
-    printf("\n========== IP Header ==========\n");
-    printf("Version:        %d\n", version);
-    printf("IHL:            %d (%d bytes)\n", ihl, ihl * 4);
-    printf("TOS:            0x%02X\n", header->tos);
-    printf("Total Length:   %d bytes\n", total_len);
-    printf("Identification: %d\n", id);
-    printf("Flags:          DF=%d, MF=%d\n", df, mf);
-    printf("Fragment Offset: %d bytes\n", offset);
-    printf("TTL:            %d\n", header->ttl);
-    printf("Protocol:       %d ", header->protocol);
-    
+    const char *proto_str;
     switch (header->protocol)
     {
         case IP_PROTO_TCP:
-            printf("(TCP)\n");
+            proto_str = "(TCP)";
             break;
         case IP_PROTO_UDP:
-            printf("(UDP)\n");
+            proto_str = "(UDP)";
             break;
         case IP_PROTO_ICMP:
-            printf("(ICMP)\n");
+            proto_str = "(ICMP)";
             break;
         default:
-            printf("(Unknown)\n");
+            proto_str = "(Unknown)";
             break;
     }
     
-    printf("Checksum:       0x%04X\n", ntohs(header->checksum));
-    printf("Source IP:      %s\n", src_ip);
-    printf("Destination IP: %s\n", dest_ip);
-    printf("===============================\n\n");
+    LOG_INFO(&g_ip_logger, "========== IP Header ==========");
+    LOG_INFO(&g_ip_logger, "Version:        %d", version);
+    LOG_INFO(&g_ip_logger, "IHL:            %d (%d bytes)", ihl, ihl * 4);
+    LOG_DEBUG(&g_ip_logger, "TOS:            0x%02X", header->tos);
+    LOG_INFO(&g_ip_logger, "Total Length:   %d bytes", total_len);
+    LOG_INFO(&g_ip_logger, "Identification: %d", id);
+    LOG_INFO(&g_ip_logger, "Flags:          DF=%d, MF=%d", df, mf);
+    LOG_INFO(&g_ip_logger, "Fragment Offset: %d bytes", offset);
+    LOG_DEBUG(&g_ip_logger, "TTL:            %d", header->ttl);
+    LOG_INFO(&g_ip_logger, "Protocol:       %d %s", header->protocol, proto_str);
+    LOG_DEBUG(&g_ip_logger, "Checksum:       0x%04X", ntohs(header->checksum));
+    LOG_INFO(&g_ip_logger, "Source IP:      %s", src_ip);
+    LOG_INFO(&g_ip_logger, "Destination IP: %s", dest_ip);
+    LOG_INFO(&g_ip_logger, "===============================");
 }
 
 /**
@@ -154,8 +159,8 @@ static fragment_info_t* find_fragment_entry(uint16_t identification, uint8_t pro
         // Check for timeout
         if (current_time - g_fragments[i].first_fragment_time > FRAGMENT_TIMEOUT)
         {
-            printf("Fragment timeout: ID=%d, clearing entry\n", 
-                   ntohs(g_fragments[i].identification));
+            LOG_WARN(&g_ip_logger, "Fragment timeout: ID=%d, clearing entry", 
+                     ntohs(g_fragments[i].identification));
             // Reuse this entry
             memset(&g_fragments[i], 0, sizeof(fragment_info_t));
             g_fragments[i].identification = identification;
@@ -210,13 +215,13 @@ int reassemble_fragments(ip_header_t *header, uint8_t *packet_data, int packet_l
     // Check if this is not a fragment (MF=0 and offset=0)
     if (mf == 0 && offset == 0)
     {
-        printf("Not a fragment, processing as complete packet\n");
+        LOG_DEBUG(&g_ip_logger, "Not a fragment, processing as complete packet");
         memcpy(reassembled_data, packet_data + IP_HEADER_MAX_SIZE, data_len);
         *reassembled_len = data_len;
         return 1;  // Complete
     }
     
-    printf("Fragment detected: Offset=%d, MF=%d, Data=%d bytes\n", offset, mf, data_len);
+    LOG_INFO(&g_ip_logger, "Fragment detected: Offset=%d, MF=%d, Data=%d bytes", offset, mf, data_len);
     
     // Find or create fragment entry
     fragment_info_t *frag = find_fragment_entry(identification, header->protocol,
@@ -224,7 +229,7 @@ int reassemble_fragments(ip_header_t *header, uint8_t *packet_data, int packet_l
     
     if (frag == NULL)
     {
-        fprintf(stderr, "Error: Fragment buffer full\n");
+        LOG_ERROR(&g_ip_logger, "Fragment buffer full");
         return -1;
     }
     
@@ -236,13 +241,13 @@ int reassemble_fragments(ip_header_t *header, uint8_t *packet_data, int packet_l
     if (mf == 0)
     {
         frag->total_size = offset + data_len;
-        printf("Last fragment received, total size: %d bytes\n", frag->total_size);
+        LOG_INFO(&g_ip_logger, "Last fragment received, total size: %d bytes", frag->total_size);
     }
     
     // Check if reassembly is complete
     if (frag->total_size > 0 && frag->received_size >= frag->total_size)
     {
-        printf("Reassembly complete!\n");
+        LOG_INFO(&g_ip_logger, "Reassembly complete!");
         memcpy(reassembled_data, frag->buffer, frag->total_size);
         *reassembled_len = frag->total_size;
         
@@ -252,7 +257,7 @@ int reassemble_fragments(ip_header_t *header, uint8_t *packet_data, int packet_l
         return 1;  // Complete
     }
     
-    printf("Waiting for more fragments... (received %d bytes)\n", frag->received_size);
+    LOG_DEBUG(&g_ip_logger, "Waiting for more fragments... (received %d bytes)", frag->received_size);
     return 0;  // Waiting for more fragments
 }
 
@@ -267,33 +272,33 @@ int process_ip_packet(uint8_t *ip_packet, int packet_len,
     
     if (packet_len < IP_HEADER_MAX_SIZE)
     {
-        fprintf(stderr, "Error: Packet too small\n");
+        LOG_ERROR(&g_ip_logger, "Packet too small");
         return 0;
     }
     
     ip_header_t *header = (ip_header_t *)ip_packet;
     
-    printf("\n--- IP Packet Processing ---\n");
+    LOG_DEBUG(&g_ip_logger, "--- IP Packet Processing ---");
     
     // Check destination IP
     if (!check_destination_ip(header->dest_ip, local_ip))
     {
-        printf("Packet discarded: Destination IP mismatch\n");
+        LOG_DEBUG(&g_ip_logger, "Packet discarded: Destination IP mismatch");
         return 0;
     }
     
     // Verify checksum
     if (!verify_ip_checksum(header, IP_HEADER_MAX_SIZE))
     {
-        printf("Packet discarded: Checksum error\n");
+        LOG_WARN(&g_ip_logger, "Packet discarded: Checksum error");
         return 0;
     }
-    printf("Checksum verified: OK\n");
+    LOG_DEBUG(&g_ip_logger, "Checksum verified: OK");
     
     // Check TTL
     if (header->ttl == 0)
     {
-        printf("Packet discarded: TTL expired\n");
+        LOG_WARN(&g_ip_logger, "Packet discarded: TTL expired");
         return 0;
     }
     
@@ -307,24 +312,24 @@ int process_ip_packet(uint8_t *ip_packet, int packet_len,
     if (result == 1)
     {
         // Reassembly complete, deliver to upper layer
-        printf("Delivering %d bytes to Transport Layer\n", reassembled_len);
+        LOG_INFO(&g_ip_logger, "Delivering %d bytes to Transport Layer", reassembled_len);
         
         FILE *fp_out = fopen(output_file, "wb");
         if (fp_out == NULL)
         {
-            perror("Error opening output file");
+            LOG_ERROR(&g_ip_logger, "Error opening output file: %s", output_file);
             return -1;
         }
         
         fwrite(reassembled_data, 1, reassembled_len, fp_out);
         fclose(fp_out);
         
-        printf("Data written to: %s\n", output_file);
+        LOG_INFO(&g_ip_logger, "Data written to: %s", output_file);
         return 1;
     }
     else if (result < 0)
     {
-        printf("Error during reassembly\n");
+        LOG_ERROR(&g_ip_logger, "Error during reassembly");
         return -1;
     }
     
@@ -338,15 +343,15 @@ static int ethernet_callback_handler(uint8_t *data, int data_len, void *user_dat
 {
     (void)user_data;  // Unused
     
-    printf("\n========== Received from Ethernet Layer ==========\n");
-    printf("Data length: %d bytes\n", data_len);
+    LOG_INFO(&g_ip_logger, "========== Received from Ethernet Layer ==========");
+    LOG_DEBUG(&g_ip_logger, "Data length: %d bytes", data_len);
     
     // Check if this is an ARP packet by looking at the hardware type field
     // ARP starts with hardware type 0x0001 (Ethernet)
     // IP starts with version/IHL byte where version = 4 (0x4X)
     if (data_len >= 2 && data[0] == 0x00 && data[1] == 0x01)
     {
-        printf("Detected ARP packet - processing...\n");
+        LOG_DEBUG(&g_ip_logger, "Detected ARP packet - processing...");
         
         // Process ARP packet if we have config
         if (g_net_config != NULL && g_arp_cache != NULL)
@@ -355,18 +360,19 @@ static int ethernet_callback_handler(uint8_t *data, int data_len, void *user_dat
         }
         else
         {
-            printf("ARP context not initialized, skipping\n");
+            LOG_WARN(&g_ip_logger, "ARP context not initialized, skipping");
         }
         return 0;  // Handled
     }
     
-    printf("Processing as IP packet...\n");
+    LOG_DEBUG(&g_ip_logger, "Processing as IP packet...");
     
     int result = process_ip_packet(data, data_len, g_local_ip, g_output_file);
     
     if (result > 0)
     {
         g_packet_processed++;
+        printf("[RECV] IP packet #%d received (%d bytes)\n", g_packet_processed, data_len);
     }
     
     return result;
@@ -377,26 +383,26 @@ static int ethernet_callback_handler(uint8_t *data, int data_len, void *user_dat
  */
 int ip_receive(const char *local_ip, const char *output_file)
 {
-    printf("\n========== IP Layer - Receiving ==========\n");
-    printf("Output file: %s\n", output_file);
-    printf("Local IP:    %s\n", local_ip);
-    printf("==========================================\n\n");
+    LOG_INFO(&g_ip_logger, "========== IP Layer - Receiving ==========");
+    LOG_INFO(&g_ip_logger, "Output file: %s", output_file);
+    LOG_INFO(&g_ip_logger, "Local IP:    %s", local_ip);
+    LOG_INFO(&g_ip_logger, "==========================================");
     
     // Set global variables
     g_local_ip = local_ip;
     g_output_file = output_file;
     g_packet_processed = 0;
     
-    printf("Starting Ethernet layer reception...\n");
-    printf("Waiting for IP packets (Press Ctrl+C to stop)...\n\n");
+    LOG_INFO(&g_ip_logger, "Starting Ethernet layer reception...");
+    LOG_INFO(&g_ip_logger, "Waiting for IP packets (Press Ctrl+C to stop)...");
     
     // Start receiving via Ethernet layer with callback
     int result = ethernet_receive_callback(ethernet_callback_handler, NULL, 0);
     
     
-    printf("\n==========================================\n");
-    printf("Total IP packets processed: %d\n", g_packet_processed);
-    printf("==========================================\n");
+    LOG_INFO(&g_ip_logger, "==========================================");
+    LOG_INFO(&g_ip_logger, "Total IP packets processed: %d", g_packet_processed);
+    LOG_INFO(&g_ip_logger, "==========================================");
     
     return result;
 }
@@ -408,5 +414,5 @@ void ip_recv_set_arp_context(network_config_t *config, arp_cache_t *cache)
 {
     g_net_config = config;
     g_arp_cache = cache;
-    printf("ARP context set for IP receiver\n");
+    LOG_DEBUG(&g_ip_logger, "ARP context set for IP receiver");
 }

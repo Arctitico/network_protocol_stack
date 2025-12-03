@@ -2,8 +2,9 @@
 #include <stdlib.h>
 #include <string.h>
 #include <signal.h>
-#include "arp.h"
-#include "arp_send.h"
+#include "../include/arp.h"
+#include "../include/arp_send.h"
+#include "../../common/include/logger.h"
 
 #define DEFAULT_LOCAL_IP    "192.168.1.100"
 #define DEFAULT_SUBNET_MASK "255.255.255.0"
@@ -11,10 +12,13 @@
 
 static volatile int g_running = 1;
 
+/* Use the global ARP logger from arp_send.c */
+extern logger_t g_arp_logger;
+
 void signal_handler(int sig)
 {
     (void)sig;
-    printf("\nReceived signal, exiting...\n");
+    LOG_INFO(&g_arp_logger, "Received signal, exiting...");
     g_running = 0;
 }
 
@@ -80,9 +84,13 @@ int main(int argc, char *argv[])
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
     
-    printf("========================================\n");
-    printf("       ARP Protocol - SENDER\n");
-    printf("========================================\n\n");
+    // Initialize ARP logger
+    arp_logger_init();
+    logger_set_role(&g_arp_logger, LOG_ROLE_SEND);
+    
+    LOG_INFO(&g_arp_logger, "========================================");
+    LOG_INFO(&g_arp_logger, "       ARP Protocol - SENDER");
+    LOG_INFO(&g_arp_logger, "========================================");
     
     // Initialize configuration
     memset(&config, 0, sizeof(config));
@@ -91,11 +99,11 @@ int main(int argc, char *argv[])
     ip_str_to_bytes(gateway_ip, config.gateway_ip);
     config.dhcp_flag = 0;
     
-    printf("Configuration:\n");
-    printf("  Local IP:     %s (will be updated from interface)\n", local_ip);
-    printf("  Subnet Mask:  %s\n", subnet_mask);
-    printf("  Gateway IP:   %s\n", gateway_ip);
-    printf("  Target IP:    %s\n", target_ip);
+    LOG_INFO(&g_arp_logger, "Configuration:");
+    LOG_INFO(&g_arp_logger, "  Local IP:     %s (will be updated from interface)", local_ip);
+    LOG_INFO(&g_arp_logger, "  Subnet Mask:  %s", subnet_mask);
+    LOG_INFO(&g_arp_logger, "  Gateway IP:   %s", gateway_ip);
+    LOG_INFO(&g_arp_logger, "  Target IP:    %s", target_ip);
     
     // Initialize ARP cache
     arp_cache_init(&cache);
@@ -106,38 +114,41 @@ int main(int argc, char *argv[])
     
     ip_str_to_bytes(target_ip, target_ip_bytes);
     
-    printf("\n========================================\n");
-    printf("Starting ARP resolution for %s\n", target_ip);
-    printf("========================================\n");
+    LOG_INFO(&g_arp_logger, "========================================");
+    LOG_INFO(&g_arp_logger, "Starting ARP resolution for %s", target_ip);
+    LOG_INFO(&g_arp_logger, "========================================");
     
     if (arp_get_mac(&config, &cache, target_ip_bytes, result_mac))
     {
         char mac_str[18];
         mac_bytes_to_str(result_mac, mac_str);
         
-        printf("\n========================================\n");
-        printf("        ARP Resolution SUCCESS\n");
-        printf("========================================\n");
-        printf("  IP Address:  %s\n", target_ip);
-        printf("  MAC Address: %s\n", mac_str);
-        printf("========================================\n");
+        LOG_INFO(&g_arp_logger, "========================================");
+        LOG_INFO(&g_arp_logger, "        ARP Resolution SUCCESS");
+        LOG_INFO(&g_arp_logger, "========================================");
+        LOG_INFO(&g_arp_logger, "  IP Address:  %s", target_ip);
+        LOG_INFO(&g_arp_logger, "  MAC Address: %s", mac_str);
+        LOG_INFO(&g_arp_logger, "========================================");
         
         // Display final cache state
         arp_cache_display(&cache);
+        
+        arp_logger_close();
+        return 0;
     }
     else
     {
-        printf("\n========================================\n");
-        printf("        ARP Resolution FAILED\n");
-        printf("========================================\n");
-        printf("  Could not resolve %s\n", target_ip);
-        printf("  Possible reasons:\n");
-        printf("    - Host is offline or unreachable\n");
-        printf("    - Network interface misconfigured\n");
-        printf("    - Firewall blocking ARP packets\n");
-        printf("========================================\n");
+        LOG_ERROR(&g_arp_logger, "========================================");
+        LOG_ERROR(&g_arp_logger, "        ARP Resolution FAILED");
+        LOG_ERROR(&g_arp_logger, "========================================");
+        LOG_ERROR(&g_arp_logger, "  Could not resolve %s", target_ip);
+        LOG_ERROR(&g_arp_logger, "  Possible reasons:");
+        LOG_ERROR(&g_arp_logger, "    - Host is offline or unreachable");
+        LOG_ERROR(&g_arp_logger, "    - Network interface misconfigured");
+        LOG_ERROR(&g_arp_logger, "    - Firewall blocking ARP packets");
+        LOG_ERROR(&g_arp_logger, "========================================");
+        
+        arp_logger_close();
         return 1;
     }
-    
-    return 0;
 }

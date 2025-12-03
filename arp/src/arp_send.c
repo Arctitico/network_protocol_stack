@@ -8,10 +8,47 @@
 #include <sys/socket.h>
 #include <linux/if.h>
 #include <unistd.h>
-#include "arp.h"
-#include "arp_send.h"
+#include "../include/arp.h"
+#include "../include/arp_send.h"
 #include "../../ethernet/include/ethernet_send.h"
 #include "../../ethernet/include/ethernet.h"
+#include "../../common/include/logger.h"
+
+/* Global logger instance for ARP module */
+logger_t g_arp_logger;
+static int g_arp_logger_initialized = 0;
+
+/**
+ * Initialize ARP logger
+ */
+void arp_logger_init(void)
+{
+    if (g_arp_logger_initialized) return;
+    
+    // Check LOG_QUIET environment variable (1 = no console output)
+    int console_enabled = (getenv("LOG_QUIET") == NULL) ? 1 : 0;
+    
+    int ret = logger_init(&g_arp_logger, "ARP", "output/arp.log", 
+                          LOG_LEVEL_DEBUG, console_enabled);
+    if (ret == 0)
+    {
+        g_arp_logger_initialized = 1;
+        LOG_INFO(&g_arp_logger, "ARP logger initialized");
+    }
+}
+
+/**
+ * Close ARP logger
+ */
+void arp_logger_close(void)
+{
+    if (g_arp_logger_initialized)
+    {
+        LOG_INFO(&g_arp_logger, "ARP logger closing");
+        logger_close(&g_arp_logger);
+        g_arp_logger_initialized = 0;
+    }
+}
 
 /* Global variables for ARP resolution */
 static int g_reply_received = 0;
@@ -32,7 +69,7 @@ static int get_interface_mac(const char *ifname, uint8_t *mac)
     
     if (sock < 0)
     {
-        perror("socket");
+        LOG_ERROR(&g_arp_logger, "Failed to create socket for MAC lookup");
         return -1;
     }
     
@@ -41,7 +78,7 @@ static int get_interface_mac(const char *ifname, uint8_t *mac)
     
     if (ioctl(sock, SIOCGIFHWADDR, &ifr) < 0)
     {
-        perror("ioctl");
+        LOG_ERROR(&g_arp_logger, "ioctl SIOCGIFHWADDR failed for %s", ifname);
         close(sock);
         return -1;
     }
@@ -62,7 +99,7 @@ static int get_interface_ip(const char *ifname, uint8_t *ip)
     
     if (sock < 0)
     {
-        perror("socket");
+        LOG_ERROR(&g_arp_logger, "Failed to create socket for IP lookup");
         return -1;
     }
     
@@ -71,7 +108,7 @@ static int get_interface_ip(const char *ifname, uint8_t *ip)
     
     if (ioctl(sock, SIOCGIFADDR, &ifr) < 0)
     {
-        perror("ioctl");
+        LOG_ERROR(&g_arp_logger, "ioctl SIOCGIFADDR failed for %s", ifname);
         close(sock);
         return -1;
     }
@@ -90,7 +127,7 @@ void arp_cache_init(arp_cache_t *cache)
 {
     memset(cache, 0, sizeof(arp_cache_t));
     cache->count = 0;
-    printf("ARP cache initialized\n");
+    LOG_INFO(&g_arp_logger, "ARP cache initialized");
 }
 
 /**
@@ -113,7 +150,7 @@ int arp_cache_add(arp_cache_t *cache, const uint8_t *ip_addr,
             char ip_str[16], mac_str[18];
             ip_bytes_to_str(ip_addr, ip_str);
             mac_bytes_to_str(mac_addr, mac_str);
-            printf("ARP cache updated: %s -> %s (state=%d)\n", ip_str, mac_str, state);
+            LOG_INFO(&g_arp_logger, "ARP cache updated: %s -> %s (state=%d)", ip_str, mac_str, state);
             return 0;
         }
     }
@@ -158,7 +195,7 @@ int arp_cache_add(arp_cache_t *cache, const uint8_t *ip_addr,
     char ip_str[16], mac_str[18];
     ip_bytes_to_str(ip_addr, ip_str);
     mac_bytes_to_str(mac_addr, mac_str);
-    printf("ARP cache added: %s -> %s (state=%d)\n", ip_str, mac_str, state);
+    LOG_INFO(&g_arp_logger, "ARP cache added: %s -> %s (state=%d)", ip_str, mac_str, state);
     
     return 0;
 }
@@ -240,9 +277,9 @@ int arp_cache_cleanup(arp_cache_t *cache)
  */
 void arp_cache_display(arp_cache_t *cache)
 {
-    printf("\n========== ARP Cache ==========\n");
-    printf("%-16s  %-18s  %-8s  %-10s\n", "IP Address", "MAC Address", "State", "Age(s)");
-    printf("--------------------------------------------------------------\n");
+    LOG_INFO(&g_arp_logger, "========== ARP Cache ==========");
+    LOG_INFO(&g_arp_logger, "%-16s  %-18s  %-8s  %-10s", "IP Address", "MAC Address", "State", "Age(s)");
+    LOG_INFO(&g_arp_logger, "--------------------------------------------------------------");
     
     time_t current_time = time(NULL);
     int valid_count = 0;
@@ -273,18 +310,18 @@ void arp_cache_display(arp_cache_t *cache)
             }
             
             long age = (long)(current_time - cache->entries[i].timestamp);
-            printf("%-16s  %-18s  %-8s  %ld\n", ip_str, mac_str, state_str, age);
+            LOG_INFO(&g_arp_logger, "%-16s  %-18s  %-8s  %ld", ip_str, mac_str, state_str, age);
             valid_count++;
         }
     }
     
     if (valid_count == 0)
     {
-        printf("(empty)\n");
+        LOG_INFO(&g_arp_logger, "(empty)");
     }
     
-    printf("===============================\n");
-    printf("Total entries: %d\n\n", valid_count);
+    LOG_INFO(&g_arp_logger, "===============================");
+    LOG_INFO(&g_arp_logger, "Total entries: %d", valid_count);
 }
 
 /**
@@ -417,7 +454,7 @@ int arp_send_request(const uint8_t *sender_mac, const uint8_t *sender_ip,
     
     char target_ip_str[16];
     ip_bytes_to_str(target_ip, target_ip_str);
-    printf("\nSending ARP request for %s (broadcast)\n", target_ip_str);
+    LOG_INFO(&g_arp_logger, "Sending ARP request for %s (broadcast)", target_ip_str);
     
     // Send via Ethernet layer
     return ethernet_send(arp_buffer, arp_len, broadcast_mac, 
@@ -446,7 +483,7 @@ int arp_send_reply(const uint8_t *sender_mac, const uint8_t *sender_ip,
     char target_ip_str[16], target_mac_str[18];
     ip_bytes_to_str(target_ip, target_ip_str);
     mac_bytes_to_str(target_mac, target_mac_str);
-    printf("\nSending ARP reply to %s (%s)\n", target_ip_str, target_mac_str);
+    LOG_INFO(&g_arp_logger, "Sending ARP reply to %s (%s)", target_ip_str, target_mac_str);
     
     // Send via Ethernet layer (unicast to requester)
     return ethernet_send(arp_buffer, arp_len, (uint8_t *)target_mac,
@@ -476,7 +513,7 @@ static void arp_reply_callback_internal(unsigned char *user_data,
             char ip_str[16], mac_str[18];
             ip_bytes_to_str(arp->sender_ip, ip_str);
             mac_bytes_to_str(arp->sender_mac, mac_str);
-            printf("Received ARP reply: %s -> %s\n", ip_str, mac_str);
+            LOG_INFO(&g_arp_logger, "Received ARP reply: %s -> %s", ip_str, mac_str);
         }
     }
 }
@@ -500,7 +537,7 @@ int arp_resolve(network_config_t *config, arp_cache_t *cache,
         char ip_str[16], mac_str[18];
         ip_bytes_to_str(target_ip, ip_str);
         mac_bytes_to_str(result_mac, mac_str);
-        printf("ARP cache hit: %s -> %s\n", ip_str, mac_str);
+        LOG_INFO(&g_arp_logger, "ARP cache hit: %s -> %s", ip_str, mac_str);
         return 1;
     }
     
@@ -516,14 +553,14 @@ int arp_resolve(network_config_t *config, arp_cache_t *cache,
         
         char mac_str[18];
         mac_bytes_to_str(config->local_mac, mac_str);
-        printf("Using pre-selected interface: %s (MAC: %s)\n", interface_to_use, mac_str);
+        LOG_DEBUG(&g_arp_logger, "Using pre-selected interface: %s (MAC: %s)", interface_to_use, mac_str);
     }
     else
     {
         // Select network interface
         if (pcap_findalldevs(&alldevs, errbuf) == -1)
         {
-            fprintf(stderr, "Error in pcap_findalldevs: %s\n", errbuf);
+            LOG_ERROR(&g_arp_logger, "Error in pcap_findalldevs: %s", errbuf);
             return 0;
         }
         
@@ -539,21 +576,21 @@ int arp_resolve(network_config_t *config, arp_cache_t *cache,
         
         if (i == 0)
         {
-            printf("\nNo interfaces found!\n");
+            LOG_ERROR(&g_arp_logger, "No interfaces found!");
             return 0;
         }
         
         printf("\nEnter the interface number (1-%d): ", i);
         if (scanf("%d", &inum) != 1)
         {
-            fprintf(stderr, "Invalid input\n");
+            LOG_ERROR(&g_arp_logger, "Invalid input");
             pcap_freealldevs(alldevs);
             return 0;
         }
         
         if (inum < 1 || inum > i)
         {
-            printf("\nInterface number out of range.\n");
+            LOG_ERROR(&g_arp_logger, "Interface number out of range");
             pcap_freealldevs(alldevs);
             return 0;
         }
@@ -569,14 +606,14 @@ int arp_resolve(network_config_t *config, arp_cache_t *cache,
         // Get local MAC and IP from interface
         if (get_interface_mac(device->name, config->local_mac) < 0)
         {
-            fprintf(stderr, "Failed to get MAC address\n");
+            LOG_ERROR(&g_arp_logger, "Failed to get MAC address");
             pcap_freealldevs(alldevs);
             return 0;
         }
         
         if (get_interface_ip(device->name, config->local_ip) < 0)
         {
-            fprintf(stderr, "Warning: Failed to get IP address from interface\n");
+            LOG_WARN(&g_arp_logger, "Failed to get IP address from interface");
         }
         
         // Notify ethernet_send module about the selected interface
@@ -585,9 +622,9 @@ int arp_resolve(network_config_t *config, arp_cache_t *cache,
         char mac_str[18], ip_str[16];
         mac_bytes_to_str(config->local_mac, mac_str);
         ip_bytes_to_str(config->local_ip, ip_str);
-        printf("\nSelected interface: %s\n", device->name);
-        printf("Local MAC: %s\n", mac_str);
-        printf("Local IP: %s\n", ip_str);
+        LOG_INFO(&g_arp_logger, "Selected interface: %s", device->name);
+        LOG_INFO(&g_arp_logger, "Local MAC: %s", mac_str);
+        LOG_INFO(&g_arp_logger, "Local IP: %s", ip_str);
         
         pcap_freealldevs(alldevs);
     }
@@ -596,7 +633,7 @@ int arp_resolve(network_config_t *config, arp_cache_t *cache,
     handle = pcap_open_live(interface_to_use, 65536, 1, 100, errbuf);
     if (handle == NULL)
     {
-        fprintf(stderr, "Unable to open adapter: %s\n", errbuf);
+        LOG_ERROR(&g_arp_logger, "Unable to open adapter: %s", errbuf);
         return 0;
     }
     
@@ -604,14 +641,14 @@ int arp_resolve(network_config_t *config, arp_cache_t *cache,
     struct bpf_program fcode;
     if (pcap_compile(handle, &fcode, "arp", 1, PCAP_NETMASK_UNKNOWN) < 0)
     {
-        fprintf(stderr, "Unable to compile filter\n");
+        LOG_ERROR(&g_arp_logger, "Unable to compile filter");
         pcap_close(handle);
         return 0;
     }
     
     if (pcap_setfilter(handle, &fcode) < 0)
     {
-        fprintf(stderr, "Unable to set filter\n");
+        LOG_ERROR(&g_arp_logger, "Unable to set filter");
         pcap_freecode(&fcode);
         pcap_close(handle);
         return 0;
@@ -622,7 +659,7 @@ int arp_resolve(network_config_t *config, arp_cache_t *cache,
     {
         if (retry > 0)
         {
-            printf("Retry %d/%d...\n", retry, ARP_REQUEST_RETRIES - 1);
+            LOG_INFO(&g_arp_logger, "Retry %d/%d...", retry, ARP_REQUEST_RETRIES - 1);
         }
         
         // Build and send ARP request frame directly via pcap
@@ -633,14 +670,14 @@ int arp_resolve(network_config_t *config, arp_cache_t *cache,
         
         char target_ip_str[16];
         ip_bytes_to_str(target_ip, target_ip_str);
-        printf("\nSending ARP request for %s (broadcast)\n", target_ip_str);
+        LOG_INFO(&g_arp_logger, "Sending ARP request for %s (broadcast)", target_ip_str);
         
         if (pcap_sendpacket(handle, frame_buffer, frame_len) != 0)
         {
-            fprintf(stderr, "Failed to send ARP request: %s\n", pcap_geterr(handle));
+            LOG_ERROR(&g_arp_logger, "Failed to send ARP request: %s", pcap_geterr(handle));
             continue;
         }
-        printf("ARP request sent (%d bytes)\n", frame_len);
+        LOG_DEBUG(&g_arp_logger, "ARP request sent (%d bytes)", frame_len);
         
         // Wait for reply with timeout
         time_t start_time = time(NULL);
@@ -679,7 +716,7 @@ int arp_resolve(network_config_t *config, arp_cache_t *cache,
         
         char timeout_ip_str[16];
         ip_bytes_to_str(target_ip, timeout_ip_str);
-        printf("ARP request timeout for %s\n", timeout_ip_str);
+        LOG_WARN(&g_arp_logger, "ARP request timeout for %s", timeout_ip_str);
     }
     
     pcap_freecode(&fcode);
@@ -687,7 +724,7 @@ int arp_resolve(network_config_t *config, arp_cache_t *cache,
     
     char fail_ip_str[16];
     ip_bytes_to_str(target_ip, fail_ip_str);
-    printf("ARP resolution failed for %s\n", fail_ip_str);
+    LOG_ERROR(&g_arp_logger, "ARP resolution failed for %s", fail_ip_str);
     
     return 0;
 }
@@ -700,7 +737,7 @@ int arp_get_mac(network_config_t *config, arp_cache_t *cache,
 {
     uint8_t target_ip[4];
     
-    printf("\n========== ARP Resolution ==========\n");
+    LOG_INFO(&g_arp_logger, "========== ARP Resolution ==========");
     
     // Determine if dest_ip is in same subnet
     if (is_same_subnet(config->local_ip, dest_ip, config->subnet_mask))
@@ -708,8 +745,8 @@ int arp_get_mac(network_config_t *config, arp_cache_t *cache,
         // Same subnet - resolve dest_ip directly
         char ip_str[16];
         ip_bytes_to_str(dest_ip, ip_str);
-        printf("Target %s is in the same subnet\n", ip_str);
-        printf("Resolving destination IP directly\n");
+        LOG_INFO(&g_arp_logger, "Target %s is in the same subnet", ip_str);
+        LOG_DEBUG(&g_arp_logger, "Resolving destination IP directly");
         memcpy(target_ip, dest_ip, 4);
     }
     else
@@ -718,12 +755,12 @@ int arp_get_mac(network_config_t *config, arp_cache_t *cache,
         char dest_str[16], gw_str[16];
         ip_bytes_to_str(dest_ip, dest_str);
         ip_bytes_to_str(config->gateway_ip, gw_str);
-        printf("Target %s is in a different subnet\n", dest_str);
-        printf("Resolving gateway IP %s instead\n", gw_str);
+        LOG_INFO(&g_arp_logger, "Target %s is in a different subnet", dest_str);
+        LOG_DEBUG(&g_arp_logger, "Resolving gateway IP %s instead", gw_str);
         memcpy(target_ip, config->gateway_ip, 4);
     }
     
-    printf("====================================\n");
+    LOG_INFO(&g_arp_logger, "====================================");
     
     // Perform ARP resolution
     return arp_resolve(config, cache, target_ip, result_mac);

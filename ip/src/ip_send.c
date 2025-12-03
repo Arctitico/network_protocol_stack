@@ -3,12 +3,49 @@
 #include <string.h>
 #include <arpa/inet.h>
 #include <math.h>
-#include "ip_send.h"
+#include "../include/ip_send.h"
 #include "../../ethernet/include/ethernet_send.h"
 #include "../../ethernet/include/ethernet.h"
+#include "../../common/include/logger.h"
 
 // Global IP identification counter
 static uint16_t g_ip_id = 0;
+
+// Global IP logger
+logger_t g_ip_logger;
+static int g_ip_logger_initialized = 0;
+
+/**
+ * Initialize IP logger
+ */
+void ip_logger_init(void)
+{
+    if (g_ip_logger_initialized) return;
+    
+    // Check LOG_QUIET environment variable (1 = no console output)
+    int console_enabled = (getenv("LOG_QUIET") == NULL) ? 1 : 0;
+    
+    int ret = logger_init(&g_ip_logger, "IP", "output/ip.log", 
+                          LOG_LEVEL_DEBUG, console_enabled);
+    if (ret == 0)
+    {
+        g_ip_logger_initialized = 1;
+        LOG_INFO(&g_ip_logger, "IP logger initialized");
+    }
+}
+
+/**
+ * Close IP logger
+ */
+void ip_logger_close(void)
+{
+    if (g_ip_logger_initialized)
+    {
+        LOG_INFO(&g_ip_logger, "IP logger closing");
+        logger_close(&g_ip_logger);
+        g_ip_logger_initialized = 0;
+    }
+}
 
 /**
  * Calculate IP header checksum
@@ -105,42 +142,43 @@ int ip_send(uint8_t *data, int data_len, uint8_t protocol,
     int fragment_count = 0;
     uint16_t identification = g_ip_id++;
     
-    printf("\n========== IP Layer - Sending ==========\n");
-    printf("Data length:   %d bytes\n", data_len);
-    printf("Source IP:     %s\n", src_ip);
-    printf("Destination IP: %s\n", dest_ip);
-    printf("Protocol:      %d ", protocol);
+    LOG_INFO(&g_ip_logger, "========== IP Layer - Sending ==========");
+    LOG_INFO(&g_ip_logger, "Data length:   %d bytes", data_len);
+    LOG_INFO(&g_ip_logger, "Source IP:     %s", src_ip);
+    LOG_INFO(&g_ip_logger, "Destination IP: %s", dest_ip);
     
+    const char *proto_str;
     switch (protocol)
     {
         case IP_PROTO_TCP:
-            printf("(TCP)\n");
+            proto_str = "(TCP)";
             break;
         case IP_PROTO_UDP:
-            printf("(UDP)\n");
+            proto_str = "(UDP)";
             break;
         case IP_PROTO_ICMP:
-            printf("(ICMP)\n");
+            proto_str = "(ICMP)";
             break;
         default:
-            printf("(Unknown)\n");
+            proto_str = "(Unknown)";
             break;
     }
+    LOG_INFO(&g_ip_logger, "Protocol:      %d %s", protocol, proto_str);
     
     // Calculate number of fragments needed
     if (data_len <= IP_MAX_DATA_SIZE)
     {
         num_fragments = 1;
-        printf("Fragmentation: Not needed\n");
+        LOG_DEBUG(&g_ip_logger, "Fragmentation: Not needed");
     }
     else
     {
         num_fragments = (int)ceil((double)data_len / IP_MAX_DATA_SIZE);
-        printf("Fragmentation: Required (%d fragments)\n", num_fragments);
+        LOG_INFO(&g_ip_logger, "Fragmentation: Required (%d fragments)", num_fragments);
     }
     
-    printf("Identification: %u\n", identification);
-    printf("========================================\n\n");
+    LOG_DEBUG(&g_ip_logger, "Identification: %u", identification);
+    LOG_INFO(&g_ip_logger, "========================================");
     
     // Send each fragment via Ethernet layer
     int offset = 0;
@@ -174,31 +212,31 @@ int ip_send(uint8_t *data, int data_len, uint8_t protocol,
         // Send packet via Ethernet layer
         int packet_len = IP_HEADER_MAX_SIZE + current_data_len;
         
-        printf("Fragment %d/%d:\n", i + 1, num_fragments);
-        printf("  Offset:       %d bytes\n", offset);
-        printf("  Data length:  %d bytes\n", current_data_len);
-        printf("  Total length: %d bytes\n", packet_len);
-        printf("  Flags:        MF=%d\n", (flags_offset & IP_FLAG_MF) ? 1 : 0);
-        printf("  Checksum:     0x%04X\n", ntohs(header->checksum));
+        LOG_DEBUG(&g_ip_logger, "Fragment %d/%d:", i + 1, num_fragments);
+        LOG_DEBUG(&g_ip_logger, "  Offset:       %d bytes", offset);
+        LOG_DEBUG(&g_ip_logger, "  Data length:  %d bytes", current_data_len);
+        LOG_DEBUG(&g_ip_logger, "  Total length: %d bytes", packet_len);
+        LOG_DEBUG(&g_ip_logger, "  Flags:        MF=%d", (flags_offset & IP_FLAG_MF) ? 1 : 0);
+        LOG_DEBUG(&g_ip_logger, "  Checksum:     0x%04X", ntohs(header->checksum));
         
         // Send via Ethernet layer
         uint8_t src_mac[6] = {0};  // Will be auto-filled by Ethernet layer
         if (ethernet_send(packet_buffer, packet_len, dest_mac, src_mac, ETHERNET_TYPE_IPV4) < 0)
         {
-            fprintf(stderr, "Failed to send fragment %d via Ethernet layer\n", i + 1);
+            LOG_ERROR(&g_ip_logger, "Failed to send fragment %d via Ethernet layer", i + 1);
             return -1;
         }
         
-        printf("  Sent via Ethernet layer\n\n");
+        LOG_DEBUG(&g_ip_logger, "  Sent via Ethernet layer");
         
         offset += current_data_len;
         fragment_count++;
     }
     
-    printf("========================================\n");
-    printf("Total fragments sent: %d\n", fragment_count);
-    printf("Data delivered to Ethernet Layer\n");
-    printf("========================================\n");
+    LOG_INFO(&g_ip_logger, "========================================");
+    LOG_INFO(&g_ip_logger, "Total fragments sent: %d", fragment_count);
+    LOG_INFO(&g_ip_logger, "Data delivered to Ethernet Layer");
+    LOG_INFO(&g_ip_logger, "========================================");
     
     return fragment_count;
 }

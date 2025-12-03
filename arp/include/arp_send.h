@@ -2,6 +2,20 @@
 #define ARP_SEND_H
 
 #include "arp.h"
+#include "logger.h"
+
+/* Global logger for ARP module */
+extern logger_t g_arp_logger;
+
+/**
+ * @brief Initialize ARP logger
+ */
+void arp_logger_init(void);
+
+/**
+ * @brief Close ARP logger
+ */
+void arp_logger_close(void);
 
 /**
  * @brief Initialize ARP cache

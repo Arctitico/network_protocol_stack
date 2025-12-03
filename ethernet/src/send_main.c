@@ -1,11 +1,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "crc32.h"
-#include "ethernet.h"
-#include "ethernet_send.h"
+#include "../include/crc32.h"
+#include "../include/ethernet.h"
+#include "../include/ethernet_send.h"
+#include "../../common/include/logger.h"
 
 #define DEFAULT_INPUT_FILE "data/input.txt"
+#define DEFAULT_LOG_FILE "output/ethernet.log"
 
 int main(int argc, char *argv[])
 {
@@ -17,10 +19,15 @@ int main(int argc, char *argv[])
         input_file = argv[1];
     }
     
+    // Initialize logger
+    ethernet_logger_init();
+    logger_set_role(&g_ethernet_logger, LOG_ROLE_SEND);
+    
     printf("========================================\n");
     printf("   Ethernet Data Link Layer - SENDER\n");
     printf("========================================\n\n");
     
+    LOG_INFO(&g_ethernet_logger, "Ethernet sender started");
     printf("Input file:  %s\n\n", input_file);
     
     // Initialize CRC32 table
@@ -30,8 +37,9 @@ int main(int argc, char *argv[])
     FILE *fp = fopen(input_file, "rb");
     if (fp == NULL)
     {
-        perror("Error opening input file");
-        fprintf(stderr, "Usage: %s [input_file] [frame_file]\n", argv[0]);
+        LOG_ERROR(&g_ethernet_logger, "Error opening input file: %s", input_file);
+        printf("Usage: %s [input_file]\n", argv[0]);
+        ethernet_logger_close();
         return 1;
     }
     
@@ -49,10 +57,12 @@ int main(int argc, char *argv[])
     
     if (data_len == 0)
     {
-        fprintf(stderr, "Error: No data read from input file\n");
+        LOG_ERROR(&g_ethernet_logger, "No data read from input file");
+        ethernet_logger_close();
         return 1;
     }
     
+    LOG_INFO(&g_ethernet_logger, "Read %zu bytes from %s", data_len, input_file);
     printf("Data read: %zu bytes\n\n", data_len);
     
     // Get destination MAC address from user
@@ -66,7 +76,8 @@ int main(int argc, char *argv[])
               &mac_values[0], &mac_values[1], &mac_values[2],
               &mac_values[3], &mac_values[4], &mac_values[5]) != 6)
     {
-        fprintf(stderr, "Invalid MAC address format\n");
+        LOG_ERROR(&g_ethernet_logger, "Invalid MAC address format");
+        ethernet_logger_close();
         return 1;
     }
     
@@ -91,13 +102,16 @@ int main(int argc, char *argv[])
     
     if (result < 0)
     {
-        fprintf(stderr, "Failed to send Ethernet frame\n");
+        LOG_ERROR(&g_ethernet_logger, "Failed to send Ethernet frame");
+        ethernet_logger_close();
         return 1;
     }
     
+    LOG_INFO(&g_ethernet_logger, "Frame sent successfully");
     printf("\n========================================\n");
     printf("Frame sent successfully!\n");
     printf("========================================\n");
     
+    ethernet_logger_close();
     return 0;
 }

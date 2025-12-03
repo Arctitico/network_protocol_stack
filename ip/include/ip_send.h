@@ -2,6 +2,20 @@
 #define IP_SEND_H
 
 #include "ip.h"
+#include "../../common/include/logger.h"
+
+/* Global IP logger */
+extern logger_t g_ip_logger;
+
+/**
+ * @brief Initialize IP logger
+ */
+void ip_logger_init(void);
+
+/**
+ * @brief Close IP logger
+ */
+void ip_logger_close(void);
 
 /**
  * @brief Calculate IP header checksum

@@ -7,12 +7,19 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <pcap.h>
-#include "ip.h"
-#include "ip_recv.h"
+#include "../include/ip.h"
+#include "../include/ip_recv.h"
+#include "../include/ip_send.h"
 #include "../../arp/include/arp.h"
 #include "../../arp/include/arp_recv.h"
 #include "../../arp/include/arp_send.h"
 #include "../../ethernet/include/ethernet_send.h"
+#include "../../common/include/logger.h"
+
+/* Use the global loggers from each layer */
+extern logger_t g_ip_logger;
+extern logger_t g_arp_logger;
+extern logger_t g_ethernet_logger;
 
 #define DEFAULT_OUTPUT_FILE "output/received_data.txt"
 
@@ -71,10 +78,11 @@ static int select_interface(char *ifname, size_t len)
     
     if (pcap_findalldevs(&alldevs, errbuf) == -1)
     {
-        fprintf(stderr, "Error finding devices: %s\n", errbuf);
+        LOG_ERROR(&g_ip_logger, "Error finding devices: %s", errbuf);
         return -1;
     }
     
+    // User interaction - keep printf
     printf("\n=== Available Network Interfaces ===\n");
     for (device = alldevs; device != NULL; device = device->next)
     {
@@ -85,7 +93,7 @@ static int select_interface(char *ifname, size_t len)
     
     if (i == 0)
     {
-        printf("No interfaces found!\n");
+        LOG_ERROR(&g_ip_logger, "No interfaces found!");
         pcap_freealldevs(alldevs);
         return -1;
     }
@@ -93,7 +101,7 @@ static int select_interface(char *ifname, size_t len)
     printf("\nEnter the interface number (1-%d): ", i);
     if (scanf("%d", &inum) != 1 || inum < 1 || inum > i)
     {
-        printf("Invalid selection\n");
+        LOG_ERROR(&g_ip_logger, "Invalid selection");
         pcap_freealldevs(alldevs);
         return -1;
     }
@@ -122,33 +130,45 @@ int main(int argc, char *argv[])
     // Parse command line arguments
     if (argc > 1) output_file = argv[1];
     
-    printf("========================================\n");
-    printf("     IP Network Layer - RECEIVER\n");
-    printf("       (with ARP Integration)\n");
-    printf("========================================\n");
+    // Initialize loggers for all layers
+    ethernet_logger_init();
+    arp_logger_init();
+    ip_logger_init();
+    
+    // Set role for all loggers
+    logger_set_role(&g_ethernet_logger, LOG_ROLE_RECV);
+    logger_set_role(&g_arp_logger, LOG_ROLE_RECV);
+    logger_set_role(&g_ip_logger, LOG_ROLE_RECV);
+    
+    LOG_INFO(&g_ip_logger, "========================================");
+    LOG_INFO(&g_ip_logger, "     IP Network Layer - RECEIVER");
+    LOG_INFO(&g_ip_logger, "       (with ARP Integration)");
+    LOG_INFO(&g_ip_logger, "========================================");
     
     // Step 1: Select network interface
-    printf("\nStep 1: Select network interface\n");
+    LOG_INFO(&g_ip_logger, "Step 1: Select network interface");
     if (select_interface(selected_if, sizeof(selected_if)) < 0)
     {
+        ip_logger_close();
+        arp_logger_close();
         return 1;
     }
-    printf("Selected: %s\n", selected_if);
+    LOG_INFO(&g_ip_logger, "Selected: %s", selected_if);
     
     // Step 2: Get interface IP automatically
     if (get_interface_ip(selected_if, local_ip, sizeof(local_ip)) < 0)
     {
-        fprintf(stderr, "Warning: Could not get IP for %s, using 0.0.0.0\n", selected_if);
+        LOG_WARN(&g_ip_logger, "Could not get IP for %s, using 0.0.0.0", selected_if);
         strcpy(local_ip, "0.0.0.0");
     }
-    printf("Local IP: %s\n", local_ip);
+    LOG_INFO(&g_ip_logger, "Local IP: %s", local_ip);
     
     // Step 3: Get netmask
     if (get_interface_netmask(selected_if, subnet_mask, sizeof(subnet_mask)) < 0)
     {
         strcpy(subnet_mask, "255.255.255.0");
     }
-    printf("Subnet Mask: %s\n", subnet_mask);
+    LOG_INFO(&g_ip_logger, "Subnet Mask: %s", subnet_mask);
     
     // Step 4: Calculate default gateway (assume x.x.x.1)
     {
@@ -163,16 +183,16 @@ int main(int argc, char *argv[])
         snprintf(gateway_ip, sizeof(gateway_ip), "%d.%d.%d.%d",
                  gw_bytes[0], gw_bytes[1], gw_bytes[2], gw_bytes[3]);
     }
-    printf("Gateway IP: %s\n", gateway_ip);
+    LOG_INFO(&g_ip_logger, "Gateway IP: %s", gateway_ip);
     
-    printf("\n========================================\n");
-    printf("Configuration Summary:\n");
-    printf("  Interface:    %s\n", selected_if);
-    printf("  Output file:  %s\n", output_file);
-    printf("  Local IP:     %s\n", local_ip);
-    printf("  Subnet Mask:  %s\n", subnet_mask);
-    printf("  Gateway IP:   %s\n", gateway_ip);
-    printf("========================================\n");
+    LOG_INFO(&g_ip_logger, "========================================");
+    LOG_INFO(&g_ip_logger, "Configuration Summary:");
+    LOG_INFO(&g_ip_logger, "  Interface:    %s", selected_if);
+    LOG_INFO(&g_ip_logger, "  Output file:  %s", output_file);
+    LOG_INFO(&g_ip_logger, "  Local IP:     %s", local_ip);
+    LOG_INFO(&g_ip_logger, "  Subnet Mask:  %s", subnet_mask);
+    LOG_INFO(&g_ip_logger, "  Gateway IP:   %s", gateway_ip);
+    LOG_INFO(&g_ip_logger, "========================================");
     
     // Initialize ARP with real interface info
     memset(&net_config, 0, sizeof(net_config));
@@ -192,9 +212,9 @@ int main(int argc, char *argv[])
             memcpy(local_mac, ifr.ifr_hwaddr.sa_data, 6);
             memcpy(net_config.local_mac, local_mac, 6);
             ethernet_send_set_interface(selected_if, local_mac);
-            printf("Local MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
-                   local_mac[0], local_mac[1], local_mac[2],
-                   local_mac[3], local_mac[4], local_mac[5]);
+            LOG_INFO(&g_ip_logger, "Local MAC: %02X:%02X:%02X:%02X:%02X:%02X",
+                     local_mac[0], local_mac[1], local_mac[2],
+                     local_mac[3], local_mac[4], local_mac[5]);
         }
         close(sock);
     }
@@ -204,24 +224,31 @@ int main(int argc, char *argv[])
     // Set ARP context for IP receiver
     ip_recv_set_arp_context(&net_config, &arp_cache);
     
-    printf("\nWaiting for IP packets on %s (IP: %s)...\n", selected_if, local_ip);
-    printf("Press Ctrl+C to stop\n\n");
+    LOG_INFO(&g_ip_logger, "Waiting for IP packets on %s (IP: %s)...", selected_if, local_ip);
+    LOG_INFO(&g_ip_logger, "Press Ctrl+C to stop");
+    
+    printf("\nWaiting for IP packets...\n");
     
     // Receive and process IP packet via Ethernet layer
     int result = ip_receive(local_ip, output_file);
     
     if (result < 0)
     {
-        fprintf(stderr, "\nError occurred while receiving IP packet\n");
+        LOG_ERROR(&g_ip_logger, "Error occurred while receiving IP packet");
+        ip_logger_close();
+        arp_logger_close();
         return 1;
     }
     
-    printf("\n========================================\n");
-    printf("IP receiver stopped\n");
-    printf("========================================\n");
+    LOG_INFO(&g_ip_logger, "========================================");
+    LOG_INFO(&g_ip_logger, "IP receiver stopped");
+    LOG_INFO(&g_ip_logger, "========================================");
     
     // Display final ARP cache
     arp_cache_display(&arp_cache);
     
+    ip_logger_close();
+    arp_logger_close();
+    ethernet_logger_close();
     return 0;
 }

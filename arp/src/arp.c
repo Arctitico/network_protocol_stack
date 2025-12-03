@@ -3,7 +3,12 @@
 #include <string.h>
 #include <arpa/inet.h>
 #include <time.h>
-#include "arp.h"
+#include "../include/arp.h"
+#include "../include/arp_send.h"
+#include "../../common/include/logger.h"
+
+/* Use the global ARP logger from arp_send.c */
+extern logger_t g_arp_logger;
 
 /**
  * Convert IP string to byte array
@@ -97,46 +102,40 @@ void display_arp_header(arp_header_t *header)
     mac_bytes_to_str(header->sender_mac, sender_mac_str);
     mac_bytes_to_str(header->target_mac, target_mac_str);
     
-    printf("\n========== ARP Header ==========\n");
-    printf("Hardware Type:   0x%04X ", ntohs(header->hardware_type));
-    if (ntohs(header->hardware_type) == ARP_HARDWARE_ETHERNET)
-        printf("(Ethernet)\n");
-    else
-        printf("(Unknown)\n");
+    const char *hw_type_str = (ntohs(header->hardware_type) == ARP_HARDWARE_ETHERNET) ? "(Ethernet)" : "(Unknown)";
+    const char *proto_type_str = (ntohs(header->protocol_type) == ARP_PROTOCOL_IPV4) ? "(IPv4)" : "(Unknown)";
     
-    printf("Protocol Type:   0x%04X ", ntohs(header->protocol_type));
-    if (ntohs(header->protocol_type) == ARP_PROTOCOL_IPV4)
-        printf("(IPv4)\n");
-    else
-        printf("(Unknown)\n");
-    
-    printf("Hardware Len:    %d\n", header->hardware_len);
-    printf("Protocol Len:    %d\n", header->protocol_len);
+    LOG_INFO(&g_arp_logger, "========== ARP Header ==========");
+    LOG_INFO(&g_arp_logger, "Hardware Type:   0x%04X %s", ntohs(header->hardware_type), hw_type_str);
+    LOG_INFO(&g_arp_logger, "Protocol Type:   0x%04X %s", ntohs(header->protocol_type), proto_type_str);
+    LOG_INFO(&g_arp_logger, "Hardware Len:    %d", header->hardware_len);
+    LOG_INFO(&g_arp_logger, "Protocol Len:    %d", header->protocol_len);
     
     uint16_t op = ntohs(header->operation);
-    printf("Operation:       %d ", op);
+    const char *op_str;
     switch (op)
     {
         case ARP_OP_REQUEST:
-            printf("(ARP Request)\n");
+            op_str = "(ARP Request)";
             break;
         case ARP_OP_REPLY:
-            printf("(ARP Reply)\n");
+            op_str = "(ARP Reply)";
             break;
         case ARP_OP_RARP_REQUEST:
-            printf("(RARP Request)\n");
+            op_str = "(RARP Request)";
             break;
         case ARP_OP_RARP_REPLY:
-            printf("(RARP Reply)\n");
+            op_str = "(RARP Reply)";
             break;
         default:
-            printf("(Unknown)\n");
+            op_str = "(Unknown)";
             break;
     }
+    LOG_INFO(&g_arp_logger, "Operation:       %d %s", op, op_str);
     
-    printf("Sender MAC:      %s\n", sender_mac_str);
-    printf("Sender IP:       %s\n", sender_ip_str);
-    printf("Target MAC:      %s\n", target_mac_str);
-    printf("Target IP:       %s\n", target_ip_str);
-    printf("================================\n\n");
+    LOG_INFO(&g_arp_logger, "Sender MAC:      %s", sender_mac_str);
+    LOG_INFO(&g_arp_logger, "Sender IP:       %s", sender_ip_str);
+    LOG_INFO(&g_arp_logger, "Target MAC:      %s", target_mac_str);
+    LOG_INFO(&g_arp_logger, "Target IP:       %s", target_ip_str);
+    LOG_INFO(&g_arp_logger, "================================");
 }

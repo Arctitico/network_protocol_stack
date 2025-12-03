@@ -19,6 +19,7 @@ ip_recv
 # Output files
 output/
 *.bin
+*.log
 
 # IDE and editor files
 .vscode/

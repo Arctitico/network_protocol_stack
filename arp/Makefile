@@ -1,7 +1,7 @@
 # ARP Protocol Makefile
 
 CC = gcc
-CFLAGS = -Wall -Wextra -I$(INC_DIR) -I$(ETHERNET_INC_DIR) -g
+CFLAGS = -Wall -Wextra -I$(INC_DIR) -I$(ETHERNET_INC_DIR) -I$(COMMON_INC_DIR) -g
 LDFLAGS = -lm -lpcap
 
 # Directories
@@ -10,6 +10,11 @@ INC_DIR = include
 BUILD_DIR = build
 DATA_DIR = data
 OUTPUT_DIR = output
+
+# Common library
+COMMON_DIR = ../common
+COMMON_INC_DIR = $(COMMON_DIR)/include
+COMMON_LIB = $(COMMON_DIR)/build/libcommon.a
 
 # Ethernet layer directories
 ETHERNET_DIR = ../ethernet
@@ -45,10 +50,10 @@ all: dirs $(SEND_TARGET) $(RECV_TARGET)
 dirs:
 	@mkdir -p $(BUILD_DIR) $(DATA_DIR) $(OUTPUT_DIR)
 
-$(SEND_TARGET): $(SEND_OBJS) $(ETHERNET_SEND_OBJS)
+$(SEND_TARGET): $(SEND_OBJS) $(ETHERNET_SEND_OBJS) $(COMMON_LIB)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
-$(RECV_TARGET): $(RECV_OBJS) $(ETHERNET_SEND_OBJS)
+$(RECV_TARGET): $(RECV_OBJS) $(ETHERNET_SEND_OBJS) $(COMMON_LIB)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c

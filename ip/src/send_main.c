@@ -7,11 +7,17 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <pcap.h>
-#include "ip.h"
-#include "ip_send.h"
+#include "../include/ip.h"
+#include "../include/ip_send.h"
 #include "../../arp/include/arp.h"
 #include "../../arp/include/arp_send.h"
 #include "../../ethernet/include/ethernet_send.h"
+#include "../../common/include/logger.h"
+
+/* Use the global loggers from each layer */
+extern logger_t g_ip_logger;
+extern logger_t g_arp_logger;
+extern logger_t g_ethernet_logger;
 
 #define DEFAULT_INPUT_FILE "data/input.txt"
 #define DEFAULT_DEST_IP "auto"  // Will be prompted
@@ -74,10 +80,11 @@ static int select_interface(char *ifname, size_t len)
     
     if (pcap_findalldevs(&alldevs, errbuf) == -1)
     {
-        fprintf(stderr, "Error finding devices: %s\n", errbuf);
+        LOG_ERROR(&g_ip_logger, "Error finding devices: %s", errbuf);
         return -1;
     }
     
+    // User interaction - keep printf
     printf("\n=== Available Network Interfaces ===\n");
     for (device = alldevs; device != NULL; device = device->next)
     {
@@ -88,7 +95,7 @@ static int select_interface(char *ifname, size_t len)
     
     if (i == 0)
     {
-        printf("No interfaces found!\n");
+        LOG_ERROR(&g_ip_logger, "No interfaces found!");
         pcap_freealldevs(alldevs);
         return -1;
     }
@@ -96,7 +103,7 @@ static int select_interface(char *ifname, size_t len)
     printf("\nEnter the interface number (1-%d): ", i);
     if (scanf("%d", &inum) != 1 || inum < 1 || inum > i)
     {
-        printf("Invalid selection\n");
+        LOG_ERROR(&g_ip_logger, "Invalid selection");
         pcap_freealldevs(alldevs);
         return -1;
     }
@@ -129,33 +136,45 @@ int main(int argc, char *argv[])
     if (argc > 1) input_file = argv[1];
     if (argc > 2) protocol = (uint8_t)atoi(argv[2]);
     
-    printf("========================================\n");
-    printf("      IP Network Layer - SENDER\n");
-    printf("       (with ARP Integration)\n");
-    printf("========================================\n");
+    // Initialize loggers for all layers
+    ethernet_logger_init();
+    arp_logger_init();
+    ip_logger_init();
+    
+    // Set role for all loggers
+    logger_set_role(&g_ethernet_logger, LOG_ROLE_SEND);
+    logger_set_role(&g_arp_logger, LOG_ROLE_SEND);
+    logger_set_role(&g_ip_logger, LOG_ROLE_SEND);
+    
+    LOG_INFO(&g_ip_logger, "========================================");
+    LOG_INFO(&g_ip_logger, "      IP Network Layer - SENDER");
+    LOG_INFO(&g_ip_logger, "       (with ARP Integration)");
+    LOG_INFO(&g_ip_logger, "========================================");
     
     // Step 1: Select network interface
-    printf("\nStep 1: Select network interface\n");
+    LOG_INFO(&g_ip_logger, "Step 1: Select network interface");
     if (select_interface(selected_if, sizeof(selected_if)) < 0)
     {
+        ip_logger_close();
+        arp_logger_close();
         return 1;
     }
-    printf("Selected: %s\n", selected_if);
+    LOG_INFO(&g_ip_logger, "Selected: %s", selected_if);
     
     // Step 2: Get interface IP automatically
     if (get_interface_ip(selected_if, src_ip, sizeof(src_ip)) < 0)
     {
-        fprintf(stderr, "Warning: Could not get IP for %s, using 0.0.0.0\n", selected_if);
+        LOG_WARN(&g_ip_logger, "Could not get IP for %s, using 0.0.0.0", selected_if);
         strcpy(src_ip, "0.0.0.0");
     }
-    printf("Source IP: %s\n", src_ip);
+    LOG_INFO(&g_ip_logger, "Source IP: %s", src_ip);
     
     // Step 3: Get netmask
     if (get_interface_netmask(selected_if, subnet_mask, sizeof(subnet_mask)) < 0)
     {
         strcpy(subnet_mask, "255.255.255.0");
     }
-    printf("Subnet Mask: %s\n", subnet_mask);
+    LOG_INFO(&g_ip_logger, "Subnet Mask: %s", subnet_mask);
     
     // Step 4: Calculate default gateway (assume x.x.x.1)
     {
@@ -170,26 +189,28 @@ int main(int argc, char *argv[])
         snprintf(gateway_ip, sizeof(gateway_ip), "%d.%d.%d.%d",
                  gw_bytes[0], gw_bytes[1], gw_bytes[2], gw_bytes[3]);
     }
-    printf("Gateway IP: %s\n", gateway_ip);
+    LOG_INFO(&g_ip_logger, "Gateway IP: %s", gateway_ip);
     
-    // Step 5: Ask for destination IP
+    // Step 5: Ask for destination IP (user interaction - keep printf)
     printf("\nStep 2: Enter destination IP address: ");
     if (scanf("%s", dest_ip) != 1)
     {
-        fprintf(stderr, "Invalid input\n");
+        LOG_ERROR(&g_ip_logger, "Invalid input");
+        ip_logger_close();
+        arp_logger_close();
         return 1;
     }
     
-    printf("\n========================================\n");
-    printf("Configuration Summary:\n");
-    printf("  Interface:    %s\n", selected_if);
-    printf("  Input file:   %s\n", input_file);
-    printf("  Source IP:    %s\n", src_ip);
-    printf("  Dest IP:      %s\n", dest_ip);
-    printf("  Subnet Mask:  %s\n", subnet_mask);
-    printf("  Gateway IP:   %s\n", gateway_ip);
-    printf("  Protocol:     %d\n", protocol);
-    printf("========================================\n");
+    LOG_INFO(&g_ip_logger, "========================================");
+    LOG_INFO(&g_ip_logger, "Configuration Summary:");
+    LOG_INFO(&g_ip_logger, "  Interface:    %s", selected_if);
+    LOG_INFO(&g_ip_logger, "  Input file:   %s", input_file);
+    LOG_INFO(&g_ip_logger, "  Source IP:    %s", src_ip);
+    LOG_INFO(&g_ip_logger, "  Dest IP:      %s", dest_ip);
+    LOG_INFO(&g_ip_logger, "  Subnet Mask:  %s", subnet_mask);
+    LOG_INFO(&g_ip_logger, "  Gateway IP:   %s", gateway_ip);
+    LOG_INFO(&g_ip_logger, "  Protocol:     %d", protocol);
+    LOG_INFO(&g_ip_logger, "========================================");
     
     // Initialize ARP with real interface info
     memset(&net_config, 0, sizeof(net_config));
@@ -216,30 +237,34 @@ int main(int argc, char *argv[])
     arp_cache_init(&arp_cache);
     
     // Resolve destination MAC address using ARP
-    printf("\nResolving MAC address for %s using ARP...\n", dest_ip);
+    LOG_INFO(&g_ip_logger, "Resolving MAC address for %s using ARP...", dest_ip);
     
     uint8_t dest_ip_bytes[4];
     ip_str_to_bytes(dest_ip, dest_ip_bytes);
     
     if (!arp_get_mac(&net_config, &arp_cache, dest_ip_bytes, dest_mac))
     {
-        fprintf(stderr, "\nFailed to resolve MAC address for %s\n", dest_ip);
-        fprintf(stderr, "Make sure the destination host is running ip_recv\n");
+        LOG_ERROR(&g_ip_logger, "Failed to resolve MAC address for %s", dest_ip);
+        LOG_ERROR(&g_ip_logger, "Make sure the destination host is running ip_recv");
+        ip_logger_close();
+        arp_logger_close();
         return 1;
     }
     
     char mac_str[18];
     mac_bytes_to_str(dest_mac, mac_str);
-    printf("Resolved: %s -> %s\n", dest_ip, mac_str);
+    LOG_INFO(&g_ip_logger, "Resolved: %s -> %s", dest_ip, mac_str);
     
     // Read data from input file (simulating transport layer)
     FILE *fp = fopen(input_file, "rb");
     if (fp == NULL)
     {
-        perror("Error opening input file");
-        fprintf(stderr, "\nUsage: %s [input] [src_ip] [dest_ip] [protocol] [subnet_mask] [gateway_ip]\n", argv[0]);
-        fprintf(stderr, "Example: %s data/input.txt 192.168.1.100 192.168.1.200 6\n", argv[0]);
-        fprintf(stderr, "         %s data/input.txt 192.168.1.100 8.8.8.8 6 255.255.255.0 192.168.1.1\n\n", argv[0]);
+        LOG_ERROR(&g_ip_logger, "Error opening input file: %s", input_file);
+        printf("\nUsage: %s [input] [src_ip] [dest_ip] [protocol] [subnet_mask] [gateway_ip]\n", argv[0]);
+        printf("Example: %s data/input.txt 192.168.1.100 192.168.1.200 6\n", argv[0]);
+        printf("         %s data/input.txt 192.168.1.100 8.8.8.8 6 255.255.255.0 192.168.1.1\n\n", argv[0]);
+        ip_logger_close();
+        arp_logger_close();
         return 1;
     }
     
@@ -250,16 +275,19 @@ int main(int argc, char *argv[])
     
     if (file_size == 0)
     {
-        fprintf(stderr, "Error: Input file is empty\n");
+        LOG_ERROR(&g_ip_logger, "Input file is empty");
         fclose(fp);
+        ip_logger_close();
+        arp_logger_close();
         return 1;
     }
     
     if (file_size > IP_MAX_PACKET_SIZE)
     {
-        fprintf(stderr, "Error: File too large (%ld bytes > %d bytes max)\n",
-                file_size, IP_MAX_PACKET_SIZE);
+        LOG_ERROR(&g_ip_logger, "File too large (%ld bytes > %d bytes max)", file_size, IP_MAX_PACKET_SIZE);
         fclose(fp);
+        ip_logger_close();
+        arp_logger_close();
         return 1;
     }
     
@@ -267,8 +295,10 @@ int main(int argc, char *argv[])
     uint8_t *data = (uint8_t *)malloc(file_size);
     if (data == NULL)
     {
-        perror("Memory allocation failed");
+        LOG_ERROR(&g_ip_logger, "Memory allocation failed");
         fclose(fp);
+        ip_logger_close();
+        arp_logger_close();
         return 1;
     }
     
@@ -277,12 +307,14 @@ int main(int argc, char *argv[])
     
     if (read_len != (size_t)file_size)
     {
-        fprintf(stderr, "Error: Failed to read complete file\n");
+        LOG_ERROR(&g_ip_logger, "Failed to read complete file");
         free(data);
+        ip_logger_close();
+        arp_logger_close();
         return 1;
     }
     
-    printf("Read %ld bytes from input file\n", file_size);
+    LOG_INFO(&g_ip_logger, "Read %ld bytes from input file", file_size);
     
     // Send IP packet via Ethernet layer
     int result = ip_send(data, (int)file_size, protocol, src_ip, dest_ip, dest_mac);
@@ -291,13 +323,20 @@ int main(int argc, char *argv[])
     
     if (result < 0)
     {
-        fprintf(stderr, "\nFailed to send IP packet\n");
+        LOG_ERROR(&g_ip_logger, "Failed to send IP packet");
+        ip_logger_close();
+        arp_logger_close();
         return 1;
     }
     
-    printf("\n========================================\n");
-    printf("IP packet(s) sent successfully!\n");
-    printf("========================================\n");
+    LOG_INFO(&g_ip_logger, "========================================");
+    LOG_INFO(&g_ip_logger, "IP packet(s) sent successfully!");
+    LOG_INFO(&g_ip_logger, "========================================");
     
+    printf("\n[OK] IP packet sent successfully! (%ld bytes)\n", file_size);
+    
+    ip_logger_close();
+    arp_logger_close();
+    ethernet_logger_close();
     return 0;
 }

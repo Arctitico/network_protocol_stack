@@ -3,6 +3,20 @@
 
 #include <stdint.h>
 #include "ethernet.h"
+#include "logger.h"
+
+/* Global logger for ethernet module */
+extern logger_t g_ethernet_logger;
+
+/**
+ * @brief Initialize ethernet logger
+ */
+void ethernet_logger_init(void);
+
+/**
+ * @brief Close ethernet logger
+ */
+void ethernet_logger_close(void);
 
 /**
  * @brief Load Ethernet header into frame buffer

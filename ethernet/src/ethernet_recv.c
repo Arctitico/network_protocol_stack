@@ -7,10 +7,11 @@
 #include <sys/socket.h>
 #include <linux/if.h>
 #include <unistd.h>
-#include "ethernet_recv.h"
-#include "ethernet.h"
-#include "ethernet_send.h"
-#include "crc32.h"
+#include "../include/ethernet_recv.h"
+#include "../include/ethernet.h"
+#include "../include/ethernet_send.h"
+#include "../include/crc32.h"
+#include "../../common/include/logger.h"
 
 // Global variables for packet callback
 static uint8_t *g_my_mac = NULL;
@@ -28,7 +29,7 @@ static int get_interface_mac(const char *ifname, uint8_t *mac)
     
     if (sock < 0)
     {
-        perror("socket");
+        LOG_ERROR(&g_ethernet_logger, "Failed to create socket for MAC lookup");
         return -1;
     }
     
@@ -37,7 +38,7 @@ static int get_interface_mac(const char *ifname, uint8_t *mac)
     
     if (ioctl(sock, SIOCGIFHWADDR, &ifr) < 0)
     {
-        perror("ioctl");
+        LOG_ERROR(&g_ethernet_logger, "ioctl SIOCGIFHWADDR failed for %s", ifname);
         close(sock);
         return -1;
     }
@@ -75,16 +76,16 @@ int verify_frame(uint8_t *buffer, int frame_size, uint8_t *my_mac)
     // Check minimum frame size (pcap doesn't include CRC, so use 60 bytes)
     if (frame_size < ETHERNET_MIN_FRAME_SIZE_NO_CRC)
     {
-        printf("Frame discarded: Too small (%d bytes < %d bytes)\n", 
-               frame_size, ETHERNET_MIN_FRAME_SIZE_NO_CRC);
+        LOG_DEBUG(&g_ethernet_logger, "Frame discarded: Too small (%d < %d bytes)", 
+                  frame_size, ETHERNET_MIN_FRAME_SIZE_NO_CRC);
         return 0;
     }
     
     // Check maximum frame size (pcap doesn't include CRC, so use 1514 bytes)
     if (frame_size > ETHERNET_MAX_FRAME_SIZE_NO_CRC)
     {
-        printf("Frame discarded: Too large (%d bytes > %d bytes)\n", 
-               frame_size, ETHERNET_MAX_FRAME_SIZE_NO_CRC);
+        LOG_DEBUG(&g_ethernet_logger, "Frame discarded: Too large (%d > %d bytes)", 
+                  frame_size, ETHERNET_MAX_FRAME_SIZE_NO_CRC);
         return 0;
     }
     
@@ -92,12 +93,9 @@ int verify_frame(uint8_t *buffer, int frame_size, uint8_t *my_mac)
     if (!mac_address_match(header->dest_mac, my_mac) && 
         !is_broadcast_mac(header->dest_mac))
     {
-        printf("Frame discarded: Destination MAC does not match\n");
-        printf("  Expected: %02X:%02X:%02X:%02X:%02X:%02X\n",
-               my_mac[0], my_mac[1], my_mac[2], my_mac[3], my_mac[4], my_mac[5]);
-        printf("  Received: %02X:%02X:%02X:%02X:%02X:%02X\n",
-               header->dest_mac[0], header->dest_mac[1], header->dest_mac[2],
-               header->dest_mac[3], header->dest_mac[4], header->dest_mac[5]);
+        LOG_DEBUG(&g_ethernet_logger, "Frame discarded: Dest MAC %02X:%02X:%02X:%02X:%02X:%02X does not match",
+                  header->dest_mac[0], header->dest_mac[1], header->dest_mac[2],
+                  header->dest_mac[3], header->dest_mac[4], header->dest_mac[5]);
         return 0;
     }
     
@@ -108,7 +106,7 @@ int verify_frame(uint8_t *buffer, int frame_size, uint8_t *my_mac)
     // Note: Ethernet padding may be present for frames < 60 bytes total
     if (data_len < 0 || data_len > ETHERNET_MAX_DATA_SIZE)
     {
-        printf("Frame discarded: Invalid data length (%d bytes)\n", data_len);
+        LOG_DEBUG(&g_ethernet_logger, "Frame discarded: Invalid data length (%d bytes)", data_len);
         return 0;
     }
     
@@ -126,55 +124,24 @@ void display_ethernet_header(uint8_t *buffer)
     ethernet_header_t *header = (ethernet_header_t *)buffer;
     uint16_t eth_type = ntohs(header->ethernet_type);
     
-    printf("\n========== Ethernet Frame Header ==========\n");
-    
-    // Display source MAC
-    printf("Source MAC:      %02X:%02X:%02X:%02X:%02X:%02X\n",
-           header->src_mac[0], header->src_mac[1], header->src_mac[2],
-           header->src_mac[3], header->src_mac[4], header->src_mac[5]);
-    
-    // Display destination MAC
-    printf("Destination MAC: %02X:%02X:%02X:%02X:%02X:%02X",
-           header->dest_mac[0], header->dest_mac[1], header->dest_mac[2],
-           header->dest_mac[3], header->dest_mac[4], header->dest_mac[5]);
-    
-    if (is_broadcast_mac(header->dest_mac))
-    {
-        printf(" (Broadcast)\n");
-    }
-    else
-    {
-        printf("\n");
-    }
-    
-    // Display Ethernet type
-    printf("Ethernet Type:   0x%04X ", eth_type);
+    const char *type_str;
     switch (eth_type)
     {
-        case ETHERNET_TYPE_IPV4:
-            printf("(IPv4)\n");
-            break;
-        case ETHERNET_TYPE_ARP:
-            printf("(ARP)\n");
-            break;
-        case ETHERNET_TYPE_RARP:
-            printf("(RARP)\n");
-            break;
-        case ETHERNET_TYPE_IPV6:
-            printf("(IPv6)\n");
-            break;
-        case ETHERNET_TYPE_ICMP:
-            printf("(ICMP)\n");
-            break;
-        case ETHERNET_TYPE_IGMP:
-            printf("(IGMP)\n");
-            break;
-        default:
-            printf("(Unknown)\n");
-            break;
+        case ETHERNET_TYPE_IPV4: type_str = "IPv4"; break;
+        case ETHERNET_TYPE_ARP:  type_str = "ARP";  break;
+        case ETHERNET_TYPE_RARP: type_str = "RARP"; break;
+        case ETHERNET_TYPE_IPV6: type_str = "IPv6"; break;
+        case ETHERNET_TYPE_ICMP: type_str = "ICMP"; break;
+        case ETHERNET_TYPE_IGMP: type_str = "IGMP"; break;
+        default: type_str = "Unknown"; break;
     }
     
-    printf("===========================================\n\n");
+    LOG_INFO(&g_ethernet_logger, "Ethernet Frame: Src=%02X:%02X:%02X:%02X:%02X:%02X Dst=%02X:%02X:%02X:%02X:%02X:%02X Type=0x%04X(%s)",
+             header->src_mac[0], header->src_mac[1], header->src_mac[2],
+             header->src_mac[3], header->src_mac[4], header->src_mac[5],
+             header->dest_mac[0], header->dest_mac[1], header->dest_mac[2],
+             header->dest_mac[3], header->dest_mac[4], header->dest_mac[5],
+             eth_type, type_str);
 }
 
 /**
@@ -185,28 +152,19 @@ int extract_frame_data(uint8_t *buffer, int frame_size, const char *output_file)
     int data_len = frame_size - ETHERNET_HEADER_SIZE - ETHERNET_CRC_SIZE;
     uint8_t *data_start = buffer + ETHERNET_HEADER_SIZE;
     
-    // Display data in hex format
-    printf("Data (hex): ");
-    for (int i = 0; i < data_len && i < 64; i++)  // Show first 64 bytes
-    {
-        printf("%02X ", data_start[i]);
-        if ((i + 1) % 16 == 0)
-            printf("\n            ");
-    }
-    if (data_len > 64)
-        printf("... (%d bytes total)", data_len);
-    printf("\n");
+    // Log data using hex dump
+    logger_hex_dump(&g_ethernet_logger, LOG_LEVEL_DEBUG, "Frame data", data_start, data_len);
     
     // Display CRC
     uint32_t crc;
     memcpy(&crc, data_start + data_len, ETHERNET_CRC_SIZE);
-    printf("CRC32:      0x%08X\n", crc);
+    LOG_DEBUG(&g_ethernet_logger, "CRC32: 0x%08X", crc);
     
     // Save data to file (for upper layer)
     FILE *fp = fopen(output_file, "wb");
     if (fp == NULL)
     {
-        perror("Error opening output file");
+        LOG_ERROR(&g_ethernet_logger, "Error opening output file: %s", output_file);
         return -1;
     }
     
@@ -215,11 +173,11 @@ int extract_frame_data(uint8_t *buffer, int frame_size, const char *output_file)
     
     if (written != (size_t)data_len)
     {
-        fprintf(stderr, "Error: Only wrote %zu of %d bytes to output\n", written, data_len);
+        LOG_ERROR(&g_ethernet_logger, "Only wrote %zu of %d bytes to output", written, data_len);
         return -1;
     }
     
-    printf("Data extracted: %d bytes written to %s\n", data_len, output_file);
+    LOG_INFO(&g_ethernet_logger, "Data extracted: %d bytes written to %s", data_len, output_file);
     
     return data_len;
 }
@@ -231,19 +189,16 @@ void packet_handler(unsigned char *user_data, const struct pcap_pkthdr *pkthdr, 
 {
     (void)user_data;  // Unused parameter
     
-    printf("\n========================================\n");
-    printf("Captured packet #%d\n", ++g_packet_count);
-    printf("Capture time: %ld.%06ld\n", (long)pkthdr->ts.tv_sec, (long)pkthdr->ts.tv_usec);
-    printf("Packet length: %d bytes\n", pkthdr->len);
+    ++g_packet_count;
+    LOG_DEBUG(&g_ethernet_logger, "Captured packet #%d, length=%d bytes", g_packet_count, pkthdr->len);
     
     // Verify frame
     if (!verify_frame((uint8_t *)packet, pkthdr->len, g_my_mac))
     {
-        printf("========================================\n");
         return;  // Frame discarded
     }
     
-    printf("Frame accepted!\n");
+    LOG_INFO(&g_ethernet_logger, "Frame #%d accepted", g_packet_count);
     
     // Display header
     display_ethernet_header((uint8_t *)packet);
@@ -255,7 +210,7 @@ void packet_handler(unsigned char *user_data, const struct pcap_pkthdr *pkthdr, 
     // If callback is set, use it instead of writing to file
     if (g_upper_layer_callback != NULL)
     {
-        printf("Delivering %d bytes to upper layer via callback\n", data_len);
+        LOG_DEBUG(&g_ethernet_logger, "Delivering %d bytes to upper layer", data_len);
         g_upper_layer_callback(data_start, data_len, g_user_data);
     }
     else if (g_output_file != NULL)
@@ -263,11 +218,9 @@ void packet_handler(unsigned char *user_data, const struct pcap_pkthdr *pkthdr, 
         // Legacy file-based delivery
         if (extract_frame_data((uint8_t *)packet, pkthdr->len, g_output_file) < 0)
         {
-            printf("Error extracting frame data\n");
+            LOG_ERROR(&g_ethernet_logger, "Error extracting frame data");
         }
     }
-    
-    printf("========================================\n");
 }
 
 /**
@@ -291,7 +244,7 @@ int ethernet_receive(const char *output_file)
     // Retrieve the device list
     if (pcap_findalldevs(&alldevs, errbuf) == -1)
     {
-        fprintf(stderr, "Error in pcap_findalldevs: %s\n", errbuf);
+        LOG_ERROR(&g_ethernet_logger, "pcap_findalldevs failed: %s", errbuf);
         return -1;
     }
     
@@ -326,11 +279,12 @@ int ethernet_receive(const char *output_file)
     for (device = alldevs, i = 0; i < inum - 1; device = device->next, i++);
     
     printf("\nSelected interface: %s\n", device->name);
+    LOG_INFO(&g_ethernet_logger, "Selected interface: %s", device->name);
     
     // Get local MAC address from selected interface
     if (get_interface_mac(device->name, local_mac) < 0)
     {
-        fprintf(stderr, "\nFailed to get MAC address for %s\n", device->name);
+        LOG_ERROR(&g_ethernet_logger, "Failed to get MAC address for %s", device->name);
         pcap_freealldevs(alldevs);
         return -1;
     }
@@ -338,6 +292,9 @@ int ethernet_receive(const char *output_file)
     printf("Local MAC: %02X:%02X:%02X:%02X:%02X:%02X\n", 
            local_mac[0], local_mac[1], local_mac[2], 
            local_mac[3], local_mac[4], local_mac[5]);
+    LOG_INFO(&g_ethernet_logger, "Local MAC: %02X:%02X:%02X:%02X:%02X:%02X", 
+             local_mac[0], local_mac[1], local_mac[2], 
+             local_mac[3], local_mac[4], local_mac[5]);
     
     // Cache the MAC address and set global pointer
     memcpy(g_cached_local_mac, local_mac, 6);
@@ -355,7 +312,7 @@ int ethernet_receive(const char *output_file)
     
     if (handle == NULL)
     {
-        fprintf(stderr, "\nUnable to open the adapter %s.\nError: %s\n", device->name, errbuf);
+        LOG_ERROR(&g_ethernet_logger, "Unable to open adapter %s: %s", device->name, errbuf);
         pcap_freealldevs(alldevs);
         return -1;
     }
@@ -363,7 +320,7 @@ int ethernet_receive(const char *output_file)
     // Check the link layer
     if (pcap_datalink(handle) != DLT_EN10MB)
     {
-        fprintf(stderr, "\nThis program works only on Ethernet networks.\n");
+        LOG_ERROR(&g_ethernet_logger, "This program works only on Ethernet networks");
         pcap_close(handle);
         pcap_freealldevs(alldevs);
         return -1;
@@ -380,10 +337,11 @@ int ethernet_receive(const char *output_file)
              local_mac[0], local_mac[1], local_mac[2], local_mac[3], local_mac[4], local_mac[5]);
     
     printf("\nSetting filter: %s\n", filter_exp);
+    LOG_DEBUG(&g_ethernet_logger, "Setting filter: %s", filter_exp);
     
     if (pcap_compile(handle, &fcode, filter_exp, 1, netmask) < 0)
     {
-        fprintf(stderr, "\nUnable to compile the packet filter. Check the syntax.\n");
+        LOG_ERROR(&g_ethernet_logger, "Unable to compile packet filter");
         pcap_close(handle);
         pcap_freealldevs(alldevs);
         return -1;
@@ -392,7 +350,7 @@ int ethernet_receive(const char *output_file)
     // Set the filter
     if (pcap_setfilter(handle, &fcode) < 0)
     {
-        fprintf(stderr, "\nError setting the filter.\n");
+        LOG_ERROR(&g_ethernet_logger, "Error setting the filter");
         pcap_close(handle);
         pcap_freealldevs(alldevs);
         return -1;
@@ -400,10 +358,12 @@ int ethernet_receive(const char *output_file)
     
     printf("\nListening on %s...\n", device->name);
     printf("Waiting for Ethernet frames (Press Ctrl+C to stop)...\n");
+    LOG_INFO(&g_ethernet_logger, "Listening on %s", device->name);
     
     // Start the capture (capture 10 packets or until Ctrl+C)
     pcap_loop(handle, 10, packet_handler, NULL);
     
+    LOG_INFO(&g_ethernet_logger, "Capture finished. Total packets: %d", g_packet_count);
     printf("\nCapture finished. Total packets received: %d\n", g_packet_count);
     
     pcap_close(handle);
@@ -447,13 +407,14 @@ int ethernet_receive_callback(ethernet_recv_callback_t callback, void *user_data
         printf("Local MAC: %02X:%02X:%02X:%02X:%02X:%02X\n",
                local_mac[0], local_mac[1], local_mac[2],
                local_mac[3], local_mac[4], local_mac[5]);
+        LOG_INFO(&g_ethernet_logger, "Using pre-selected interface: %s", interface_to_use);
     }
     else
     {
         // Retrieve the device list
         if (pcap_findalldevs(&alldevs, errbuf) == -1)
         {
-            fprintf(stderr, "Error in pcap_findalldevs: %s\n", errbuf);
+            LOG_ERROR(&g_ethernet_logger, "pcap_findalldevs failed: %s", errbuf);
             return -1;
         }
         
@@ -477,7 +438,7 @@ int ethernet_receive_callback(ethernet_recv_callback_t callback, void *user_data
         printf("\nEnter the interface number (1-%d): ", i);
         if (scanf("%d", &inum) != 1)
         {
-            fprintf(stderr, "Invalid input\n");
+            LOG_ERROR(&g_ethernet_logger, "Invalid input for interface selection");
             pcap_freealldevs(alldevs);
             return -1;
         }
@@ -494,11 +455,12 @@ int ethernet_receive_callback(ethernet_recv_callback_t callback, void *user_data
         
         interface_to_use = device->name;
         printf("\nSelected interface: %s\n", device->name);
+        LOG_INFO(&g_ethernet_logger, "Selected interface: %s", device->name);
         
         // Get local MAC address from selected interface
         if (get_interface_mac(device->name, local_mac) < 0)
         {
-            fprintf(stderr, "\nFailed to get MAC address for %s\n", device->name);
+            LOG_ERROR(&g_ethernet_logger, "Failed to get MAC address for %s", device->name);
             pcap_freealldevs(alldevs);
             return -1;
         }
@@ -506,6 +468,9 @@ int ethernet_receive_callback(ethernet_recv_callback_t callback, void *user_data
         printf("Local MAC: %02X:%02X:%02X:%02X:%02X:%02X\n", 
                local_mac[0], local_mac[1], local_mac[2], 
                local_mac[3], local_mac[4], local_mac[5]);
+        LOG_INFO(&g_ethernet_logger, "Local MAC: %02X:%02X:%02X:%02X:%02X:%02X", 
+                 local_mac[0], local_mac[1], local_mac[2], 
+                 local_mac[3], local_mac[4], local_mac[5]);
         
         // Cache the MAC address and set global pointer
         memcpy(g_cached_local_mac, local_mac, 6);
@@ -524,7 +489,7 @@ int ethernet_receive_callback(ethernet_recv_callback_t callback, void *user_data
     
     if (handle == NULL)
     {
-        fprintf(stderr, "\nUnable to open the adapter %s.\nError: %s\n", interface_to_use, errbuf);
+        LOG_ERROR(&g_ethernet_logger, "Unable to open adapter %s: %s", interface_to_use, errbuf);
         if (alldevs) pcap_freealldevs(alldevs);
         return -1;
     }
@@ -532,7 +497,7 @@ int ethernet_receive_callback(ethernet_recv_callback_t callback, void *user_data
     // Check the link layer
     if (pcap_datalink(handle) != DLT_EN10MB)
     {
-        fprintf(stderr, "\nThis program works only on Ethernet networks.\n");
+        LOG_ERROR(&g_ethernet_logger, "This program works only on Ethernet networks");
         pcap_close(handle);
         if (alldevs) pcap_freealldevs(alldevs);
         return -1;
@@ -548,10 +513,11 @@ int ethernet_receive_callback(ethernet_recv_callback_t callback, void *user_data
              local_mac[0], local_mac[1], local_mac[2], local_mac[3], local_mac[4], local_mac[5]);
     
     printf("\nSetting filter: %s\n", filter_exp);
+    LOG_DEBUG(&g_ethernet_logger, "Setting filter: %s", filter_exp);
     
     if (pcap_compile(handle, &fcode, filter_exp, 1, netmask) < 0)
     {
-        fprintf(stderr, "\nUnable to compile the packet filter. Check the syntax.\n");
+        LOG_ERROR(&g_ethernet_logger, "Unable to compile packet filter");
         pcap_close(handle);
         if (alldevs) pcap_freealldevs(alldevs);
         return -1;
@@ -560,7 +526,7 @@ int ethernet_receive_callback(ethernet_recv_callback_t callback, void *user_data
     // Set the filter
     if (pcap_setfilter(handle, &fcode) < 0)
     {
-        fprintf(stderr, "\nError setting the filter.\n");
+        LOG_ERROR(&g_ethernet_logger, "Error setting the filter");
         pcap_close(handle);
         if (alldevs) pcap_freealldevs(alldevs);
         return -1;
@@ -568,6 +534,7 @@ int ethernet_receive_callback(ethernet_recv_callback_t callback, void *user_data
     
     printf("\nListening on %s...\n", interface_to_use);
     printf("Waiting for Ethernet frames (Press Ctrl+C to stop)...\n");
+    LOG_INFO(&g_ethernet_logger, "Listening on %s", interface_to_use);
     
     // Free alldevs now if it was allocated
     if (alldevs) pcap_freealldevs(alldevs);
@@ -575,6 +542,7 @@ int ethernet_receive_callback(ethernet_recv_callback_t callback, void *user_data
     // Start the capture
     int captured = pcap_loop(handle, packet_count, packet_handler, NULL);
     
+    LOG_INFO(&g_ethernet_logger, "Capture finished. Total packets: %d", g_packet_count);
     printf("\nCapture finished. Total packets received: %d\n", g_packet_count);
     
     pcap_close(handle);

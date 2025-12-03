@@ -7,9 +7,46 @@
 #include <sys/socket.h>
 #include <linux/if.h>
 #include <unistd.h>
-#include "ethernet_send.h"
-#include "ethernet.h"
-#include "crc32.h"
+#include "../include/ethernet_send.h"
+#include "../include/ethernet.h"
+#include "../include/crc32.h"
+#include "../../common/include/logger.h"
+
+/* Global logger instance for ethernet module */
+logger_t g_ethernet_logger;
+static int g_logger_initialized = 0;
+
+/**
+ * Initialize ethernet logger
+ */
+void ethernet_logger_init(void)
+{
+    if (g_logger_initialized) return;
+    
+    // Check LOG_QUIET environment variable (1 = no console output)
+    int console_enabled = (getenv("LOG_QUIET") == NULL) ? 1 : 0;
+    
+    int ret = logger_init(&g_ethernet_logger, "ETHERNET", "output/ethernet.log", 
+                          LOG_LEVEL_DEBUG, console_enabled);
+    if (ret == 0)
+    {
+        g_logger_initialized = 1;
+        LOG_INFO(&g_ethernet_logger, "Ethernet logger initialized");
+    }
+}
+
+/**
+ * Close ethernet logger
+ */
+void ethernet_logger_close(void)
+{
+    if (g_logger_initialized)
+    {
+        LOG_INFO(&g_ethernet_logger, "Ethernet logger closing");
+        logger_close(&g_ethernet_logger);
+        g_logger_initialized = 0;
+    }
+}
 
 // Get MAC address of a network interface
 static int get_interface_mac(const char *ifname, uint8_t *mac)
@@ -19,7 +56,7 @@ static int get_interface_mac(const char *ifname, uint8_t *mac)
     
     if (sock < 0)
     {
-        perror("socket");
+        LOG_ERROR(&g_ethernet_logger, "Failed to create socket for MAC lookup");
         return -1;
     }
     
@@ -28,7 +65,7 @@ static int get_interface_mac(const char *ifname, uint8_t *mac)
     
     if (ioctl(sock, SIOCGIFHWADDR, &ifr) < 0)
     {
-        perror("ioctl");
+        LOG_ERROR(&g_ethernet_logger, "ioctl SIOCGIFHWADDR failed for %s", ifname);
         close(sock);
         return -1;
     }
@@ -119,8 +156,8 @@ int load_ethernet_data(uint8_t *buffer, uint8_t *data, int data_len)
     // Check data length constraints
     if (data_len < ETHERNET_MIN_DATA_SIZE || data_len > ETHERNET_MAX_DATA_SIZE)
     {
-        fprintf(stderr, "Error: Data size %d is out of range [%d, %d]\n", 
-                data_len, ETHERNET_MIN_DATA_SIZE, ETHERNET_MAX_DATA_SIZE);
+        LOG_ERROR(&g_ethernet_logger, "Data size %d is out of range [%d, %d]", 
+                  data_len, ETHERNET_MIN_DATA_SIZE, ETHERNET_MAX_DATA_SIZE);
         return -1;
     }
     
@@ -162,19 +199,19 @@ int send_ethernet_frame(uint8_t *buffer, int frame_size)
         
         if (handle == NULL)
         {
-            fprintf(stderr, "\nUnable to open the adapter. %s is not supported\n", g_selected_interface);
+            LOG_ERROR(&g_ethernet_logger, "Unable to open adapter %s", g_selected_interface);
             return -1;
         }
         
         // Send the packet
         if (pcap_sendpacket(handle, buffer, frame_size) != 0)
         {
-            fprintf(stderr, "\nError sending the packet: %s\n", pcap_geterr(handle));
+            LOG_ERROR(&g_ethernet_logger, "Error sending packet: %s", pcap_geterr(handle));
             pcap_close(handle);
             return -1;
         }
         
-        printf("Successfully sent %d bytes (Interface: %s)\n", frame_size, g_selected_interface);
+        LOG_INFO(&g_ethernet_logger, "Sent %d bytes via %s", frame_size, g_selected_interface);
         
         pcap_close(handle);
         return 1;
@@ -183,7 +220,7 @@ int send_ethernet_frame(uint8_t *buffer, int frame_size)
     // Retrieve the device list
     if (pcap_findalldevs(&alldevs, errbuf) == -1)
     {
-        fprintf(stderr, "Error in pcap_findalldevs: %s\n", errbuf);
+        LOG_ERROR(&g_ethernet_logger, "pcap_findalldevs failed: %s", errbuf);
         return -1;
     }
     
@@ -207,7 +244,7 @@ int send_ethernet_frame(uint8_t *buffer, int frame_size)
     printf("\nEnter the interface number (1-%d): ", i);
     if (scanf("%d", &inum) != 1)
     {
-        fprintf(stderr, "Invalid input\n");
+        LOG_ERROR(&g_ethernet_logger, "Invalid input for interface selection");
         pcap_freealldevs(alldevs);
         return -1;
     }
@@ -232,14 +269,14 @@ int send_ethernet_frame(uint8_t *buffer, int frame_size)
     uint8_t src_mac[6];
     if (get_interface_mac(device->name, src_mac) < 0)
     {
-        fprintf(stderr, "\nFailed to get MAC address for %s\n", device->name);
+        LOG_ERROR(&g_ethernet_logger, "Failed to get MAC address for %s", device->name);
         pcap_freealldevs(alldevs);
         return -1;
     }
     
-    printf("Source MAC: %02X:%02X:%02X:%02X:%02X:%02X\n", 
-           src_mac[0], src_mac[1], src_mac[2], 
-           src_mac[3], src_mac[4], src_mac[5]);
+    LOG_INFO(&g_ethernet_logger, "Source MAC: %02X:%02X:%02X:%02X:%02X:%02X", 
+             src_mac[0], src_mac[1], src_mac[2], 
+             src_mac[3], src_mac[4], src_mac[5]);
            
     // Cache the source MAC and set flag
     memcpy(g_cached_src_mac, src_mac, 6);
@@ -257,7 +294,7 @@ int send_ethernet_frame(uint8_t *buffer, int frame_size)
     
     if (handle == NULL)
     {
-        fprintf(stderr, "\nUnable to open the adapter. %s is not supported\n", device->name);
+        LOG_ERROR(&g_ethernet_logger, "Unable to open adapter %s", device->name);
         pcap_freealldevs(alldevs);
         return -1;
     }
@@ -265,13 +302,13 @@ int send_ethernet_frame(uint8_t *buffer, int frame_size)
     // Send the packet
     if (pcap_sendpacket(handle, buffer, frame_size) != 0)
     {
-        fprintf(stderr, "\nError sending the packet: %s\n", pcap_geterr(handle));
+        LOG_ERROR(&g_ethernet_logger, "Error sending packet: %s", pcap_geterr(handle));
         pcap_close(handle);
         pcap_freealldevs(alldevs);
         return -1;
     }
     
-    printf("Successfully sent %d bytes\n", frame_size);
+    LOG_INFO(&g_ethernet_logger, "Sent %d bytes via %s", frame_size, device->name);
     
     pcap_close(handle);
     pcap_freealldevs(alldevs);
@@ -291,8 +328,8 @@ int ethernet_send(uint8_t *data, int data_len,
     // Validate input data length
     if (data_len < ETHERNET_MIN_DATA_SIZE)
     {
-        fprintf(stderr, "Warning: Data size %d < minimum %d, padding with zeros\n", 
-                data_len, ETHERNET_MIN_DATA_SIZE);
+        LOG_WARN(&g_ethernet_logger, "Data size %d < minimum %d, padding with zeros", 
+                 data_len, ETHERNET_MIN_DATA_SIZE);
         
         // Pad with zeros
         uint8_t padded_data[ETHERNET_MIN_DATA_SIZE];
@@ -303,8 +340,8 @@ int ethernet_send(uint8_t *data, int data_len,
     }
     else if (data_len > ETHERNET_MAX_DATA_SIZE)
     {
-        fprintf(stderr, "Error: Data size %d exceeds maximum %d, discarding\n", 
-                data_len, ETHERNET_MAX_DATA_SIZE);
+        LOG_ERROR(&g_ethernet_logger, "Data size %d exceeds maximum %d", 
+                  data_len, ETHERNET_MAX_DATA_SIZE);
         return -1;
     }
     
