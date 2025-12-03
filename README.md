@@ -24,6 +24,19 @@ cd ip && sudo ./ip_recv
 cd ip && sudo ./ip_send
 ```
 
+## 日志系统
+
+日志文件位于 `ip/output/` 目录。
+
+控制终端日志输出：
+```bash
+# 正常运行（终端 + 文件）
+sudo ./ip_recv
+
+# 静默模式（仅文件）
+sudo LOG_QUIET=1 ./ip_recv
+```
+
 ## 清理
 
 ```bash
