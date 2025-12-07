@@ -23,8 +23,8 @@ void icmp_logger_init(void)
 {
     if (g_icmp_logger_initialized) return;
     
-    // Check LOG_QUIET environment variable (1 = no console output)
-    int console_enabled = (getenv("LOG_QUIET") == NULL) ? 1 : 0;
+    // Check LOG_QUIET environment variable (0 = enable console output)
+    int console_enabled = (getenv("LOG_QUIET") != NULL && atoi(getenv("LOG_QUIET")) == 0) ? 1 : 0;
     
     int ret = logger_init(&g_icmp_logger, "ICMP", "output/icmp.log", 
                           LOG_LEVEL_DEBUG, console_enabled);

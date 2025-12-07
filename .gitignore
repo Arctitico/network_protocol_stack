@@ -9,8 +9,11 @@ build/
 *.out
 
 # Executables
-ip/ip_send
-ip/ip_recv
+udp/udp_server
+udp/udp_client
+
+# test data
+data/
 
 # Output files
 output/

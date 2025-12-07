@@ -3,7 +3,7 @@
 .PHONY: all clean common ethernet arp icmp ip help
 
 # Default target
-all: common ethernet arp icmp ip
+all: common ethernet arp icmp ip udp
 
 # Build common utilities
 common:
@@ -30,6 +30,11 @@ ip: common
 	@echo "Building IP Layer..."
 	@$(MAKE) -C ip all
 
+# Build UDP layer
+udp: common
+	@echo "Building UDP Layer..."
+	@$(MAKE) -C udp all
+
 # Clean all layers
 clean:
 	@echo "Cleaning all layers..."
@@ -38,6 +43,7 @@ clean:
 	@$(MAKE) -C arp clean
 	@$(MAKE) -C icmp clean
 	@$(MAKE) -C ip clean
+	@$(MAKE) -C udp clean
 	@echo "All layers cleaned"
 
 # Help
@@ -50,3 +56,4 @@ help:
 	@echo "  make arp      - Build ARP layer only"
 	@echo "  make icmp     - Build ICMP layer only"
 	@echo "  make ip       - Build IP layer only"
+	@echo "  make udp      - Build UDP layer only"

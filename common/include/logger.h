@@ -26,6 +26,7 @@ typedef struct {
     FILE *file;                 // Log file handle
     log_level_t level;          // Minimum log level to output
     int console_enabled;        // Also print to console (1=yes, 0=no)
+    int file_enabled;           // Write to log file (1=yes, 0=no)
     const char *module_name;    // Module name (e.g., "ETHERNET", "IP", "ARP")
     log_role_t role;            // Role (SEND/RECV/NONE)
 } logger_t;

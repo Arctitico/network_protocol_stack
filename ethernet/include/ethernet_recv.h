@@ -60,4 +60,12 @@ void ethernet_clear_protocols(void);
  */
 int ethernet_receive_dispatch(int packet_count);
 
+/**
+ * @brief Stop the current pcap capture loop
+ * 
+ * This function can be called from a signal handler to gracefully
+ * stop the packet capture started by ethernet_receive_dispatch().
+ */
+void ethernet_stop_capture(void);
+
 #endif /* ETHERNET_RECV_H */

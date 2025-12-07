@@ -16,6 +16,14 @@
 logger_t g_ethernet_logger;
 static int g_logger_initialized = 0;
 
+// Global variables to cache interface selection
+static char g_selected_interface[IFNAMSIZ] = {0};
+static uint8_t g_cached_src_mac[6] = {0};
+static int g_interface_selected = 0;
+
+// Persistent pcap handle for high-performance sending
+static pcap_t *g_send_handle = NULL;
+
 /**
  * Initialize ethernet logger
  */
@@ -23,8 +31,8 @@ void ethernet_logger_init(void)
 {
     if (g_logger_initialized) return;
     
-    // Check LOG_QUIET environment variable (1 = no console output)
-    int console_enabled = (getenv("LOG_QUIET") == NULL) ? 1 : 0;
+    // Check LOG_QUIET environment variable (0 = enable console output)
+    int console_enabled = (getenv("LOG_QUIET") != NULL && atoi(getenv("LOG_QUIET")) == 0) ? 1 : 0;
     
     int ret = logger_init(&g_ethernet_logger, "ETHERNET", "output/ethernet.log", 
                           LOG_LEVEL_DEBUG, console_enabled);
@@ -40,6 +48,13 @@ void ethernet_logger_init(void)
  */
 void ethernet_logger_close(void)
 {
+    // Close persistent pcap handle
+    if (g_send_handle != NULL)
+    {
+        pcap_close(g_send_handle);
+        g_send_handle = NULL;
+    }
+    
     if (g_logger_initialized)
     {
         LOG_INFO(&g_ethernet_logger, "Ethernet logger closing");
@@ -76,11 +91,6 @@ static int get_interface_mac(const char *ifname, uint8_t *mac)
     return 0;
 }
 
-// Global variables to cache interface selection
-static char g_selected_interface[IFNAMSIZ] = {0};
-static uint8_t g_cached_src_mac[6] = {0};
-static int g_interface_selected = 0;
-
 /**
  * Set the cached interface for sending
  */
@@ -96,6 +106,17 @@ void ethernet_send_set_interface(const char *ifname, const uint8_t *src_mac)
         memcpy(g_cached_src_mac, src_mac, 6);
     }
     g_interface_selected = 1;
+    
+    // Pre-open pcap handle for persistent sending
+    if (g_send_handle == NULL && ifname != NULL)
+    {
+        char errbuf[PCAP_ERRBUF_SIZE];
+        g_send_handle = pcap_open_live(ifname, 65536, 1, 10, errbuf);
+        if (g_send_handle == NULL)
+        {
+            LOG_WARN(&g_ethernet_logger, "Failed to pre-open pcap handle: %s", errbuf);
+        }
+    }
 }
 
 /**
@@ -184,18 +205,27 @@ int send_ethernet_frame(uint8_t *buffer, int frame_size)
     char errbuf[PCAP_ERRBUF_SIZE];
     int inum, i = 0;
     
-    // If interface is already selected, use it directly
+    // If interface is already selected, use persistent handle for speed
     if (g_interface_selected)
     {
         // Update source MAC in the frame buffer
         memcpy(buffer + 6, g_cached_src_mac, 6);
         
-        // Open the device
-        handle = pcap_open_live(g_selected_interface, // name of the device
-                                65536,                // portion to capture (entire packet)
-                                1,                    // promiscuous mode
-                                1000,                 // read timeout
-                                errbuf);              // error buffer
+        // Use persistent handle if available, otherwise open new one
+        if (g_send_handle != NULL)
+        {
+            // Fast path: use persistent handle
+            if (pcap_sendpacket(g_send_handle, buffer, frame_size) != 0)
+            {
+                LOG_ERROR(&g_ethernet_logger, "Error sending packet: %s", pcap_geterr(g_send_handle));
+                return -1;
+            }
+            LOG_DEBUG(&g_ethernet_logger, "Sent %d bytes via %s (persistent)", frame_size, g_selected_interface);
+            return 1;
+        }
+        
+        // Fallback: open new handle (slower)
+        handle = pcap_open_live(g_selected_interface, 65536, 1, 10, errbuf);
         
         if (handle == NULL)
         {
@@ -213,7 +243,8 @@ int send_ethernet_frame(uint8_t *buffer, int frame_size)
         
         LOG_INFO(&g_ethernet_logger, "Sent %d bytes via %s", frame_size, g_selected_interface);
         
-        pcap_close(handle);
+        // Cache this handle for future use
+        g_send_handle = handle;
         return 1;
     }
 

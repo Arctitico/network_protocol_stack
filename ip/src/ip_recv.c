@@ -12,6 +12,8 @@
 #include "../../arp/include/arp_send.h"
 #include "../../icmp/include/icmp.h"
 #include "../../icmp/include/icmp_recv.h"
+#include "../../udp/include/udp.h"
+#include "../../udp/include/udp_recv.h"
 #include "../../common/include/logger.h"
 
 /* Use the global IP logger from ip_send.c */
@@ -376,6 +378,32 @@ int process_ip_packet(uint8_t *ip_packet, int packet_len,
             }
             
             return icmp_result;
+        }
+        else if (header->protocol == IP_PROTO_UDP)
+        {
+            // Handle UDP protocol
+            LOG_INFO(&g_ip_logger, "Protocol is UDP, calling UDP handler");
+            
+            // Get source and destination IP address strings
+            char src_ip_str[INET_ADDRSTRLEN];
+            char dest_ip_str[INET_ADDRSTRLEN];
+            inet_ntop(AF_INET, &header->src_ip, src_ip_str, INET_ADDRSTRLEN);
+            inet_ntop(AF_INET, &header->dest_ip, dest_ip_str, INET_ADDRSTRLEN);
+            
+            // Call UDP receiver
+            int udp_result = process_udp_packet(reassembled_data, reassembled_len,
+                                                src_ip_str, dest_ip_str);
+            
+            if (udp_result > 0)
+            {
+                LOG_INFO(&g_ip_logger, "UDP packet processed: %d bytes delivered", udp_result);
+            }
+            else
+            {
+                LOG_ERROR(&g_ip_logger, "UDP packet processing failed");
+            }
+            
+            return udp_result;
         }
         else
         {

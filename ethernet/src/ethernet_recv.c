@@ -35,6 +35,9 @@ static uint8_t g_last_src_mac[6] = {0};
 // Protocol dispatch table
 static protocol_handler_t g_protocol_handlers[MAX_PROTOCOL_HANDLERS];
 
+// Global pcap handle for stopping capture
+static pcap_t *g_pcap_handle = NULL;
+
 // Get MAC address of a network interface
 static int get_interface_mac(const char *ifname, uint8_t *mac)
 {
@@ -384,8 +387,11 @@ int ethernet_receive_dispatch(int packet_count)
         ethernet_send_set_interface(device->name, local_mac);
     }
     
-    // Open the device
-    handle = pcap_open_live(interface_to_use, 65536, 1, 1000, errbuf);
+    // Open the device - use shorter timeout for better responsiveness
+    handle = pcap_open_live(interface_to_use, 65536, 1, 10, errbuf);
+    
+    // Store handle globally for stop_capture
+    g_pcap_handle = handle;
     
     if (handle == NULL)
     {
@@ -444,6 +450,19 @@ int ethernet_receive_dispatch(int packet_count)
     printf("\nCapture finished. Total packets received: %d\n", g_packet_count);
     
     pcap_close(handle);
+    g_pcap_handle = NULL;
     
     return captured;
+}
+
+/**
+ * Stop the current pcap capture loop
+ */
+void ethernet_stop_capture(void)
+{
+    if (g_pcap_handle != NULL)
+    {
+        pcap_breakloop(g_pcap_handle);
+        LOG_INFO(&g_ethernet_logger, "Capture loop stopped by user request");
+    }
 }

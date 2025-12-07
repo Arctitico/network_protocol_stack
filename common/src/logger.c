@@ -86,7 +86,16 @@ int logger_init(logger_t *logger, const char *module_name,
     logger->file = NULL;
     logger->role = LOG_ROLE_NONE;
     
-    if (log_file_path != NULL)
+    // Check LOG_DISABLE environment variable (1 = disable file logging)
+    int file_enabled = 1;
+    char *log_disable = getenv("LOG_DISABLE");
+    if (log_disable != NULL && atoi(log_disable) == 1)
+    {
+        file_enabled = 0;
+    }
+    logger->file_enabled = file_enabled;
+    
+    if (log_file_path != NULL && file_enabled)
     {
         /* Ensure directory exists */
         if (ensure_directory(log_file_path) < 0)
@@ -145,6 +154,15 @@ void logger_log(logger_t *logger, log_level_t level, const char *fmt, ...)
         return;
     }
     
+    // Fast path: if both file and console are disabled, skip all work
+    int do_file = (logger->file != NULL && logger->file_enabled);
+    int do_console = logger->console_enabled;
+    
+    if (!do_file && !do_console)
+    {
+        return;
+    }
+    
     char timestamp[32];
     get_timestamp(timestamp, sizeof(timestamp));
     
@@ -162,8 +180,8 @@ void logger_log(logger_t *logger, log_level_t level, const char *fmt, ...)
     
     va_list args;
     
-    /* Write to file (no colors) */
-    if (logger->file != NULL)
+    /* Write to file (no colors) - only if file logging is enabled */
+    if (do_file)
     {
         fprintf(logger->file, "[%s] [%s] [%s] ", 
                 timestamp, level_names[level], module_str);
@@ -173,11 +191,15 @@ void logger_log(logger_t *logger, log_level_t level, const char *fmt, ...)
         va_end(args);
         
         fprintf(logger->file, "\n");
-        fflush(logger->file);
+        // Only flush for errors to improve performance
+        if (level >= LOG_LEVEL_ERROR)
+        {
+            fflush(logger->file);
+        }
     }
     
     /* Write to console (with colors) */
-    if (logger->console_enabled)
+    if (do_console)
     {
         fprintf(stdout, "%s[%s]%s [%s] ", 
                 level_colors[level], level_names[level], color_reset,
@@ -200,6 +222,15 @@ void logger_hex_dump(logger_t *logger, log_level_t level,
         return;
     }
     
+    // Fast path: if both file and console are disabled, skip all work
+    int do_file = (logger->file != NULL && logger->file_enabled);
+    int do_console = logger->console_enabled;
+    
+    if (!do_file && !do_console)
+    {
+        return;
+    }
+    
     char timestamp[32];
     get_timestamp(timestamp, sizeof(timestamp));
     
@@ -208,8 +239,8 @@ void logger_hex_dump(logger_t *logger, log_level_t level,
     char ascii_line[20];
     int offset = 0;
     
-    /* Write to file */
-    if (logger->file != NULL)
+    /* Write to file - only if file logging is enabled */
+    if (logger->file != NULL && logger->file_enabled)
     {
         fprintf(logger->file, "[%s] [%s] [%s] %s (%d bytes):\n",
                 timestamp, level_names[level], logger->module_name, prefix, len);
