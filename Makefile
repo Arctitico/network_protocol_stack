@@ -1,9 +1,9 @@
 # Root Makefile
 
-.PHONY: all clean common ethernet arp ip help
+.PHONY: all clean common ethernet arp icmp ip help
 
 # Default target
-all: common ethernet arp ip
+all: common ethernet arp icmp ip
 
 # Build common utilities
 common:
@@ -20,6 +20,11 @@ arp: common
 	@echo "Building ARP Layer..."
 	@$(MAKE) -C arp all
 
+# Build ICMP layer
+icmp: common
+	@echo "Building ICMP Layer..."
+	@$(MAKE) -C icmp all
+
 # Build IP layer
 ip: common
 	@echo "Building IP Layer..."
@@ -31,6 +36,7 @@ clean:
 	@$(MAKE) -C common clean
 	@$(MAKE) -C ethernet clean
 	@$(MAKE) -C arp clean
+	@$(MAKE) -C icmp clean
 	@$(MAKE) -C ip clean
 	@echo "All layers cleaned"
 
@@ -42,4 +48,5 @@ help:
 	@echo "  make common   - Build common utilities only"
 	@echo "  make ethernet - Build Ethernet layer only"
 	@echo "  make arp      - Build ARP layer only"
+	@echo "  make icmp     - Build ICMP layer only"
 	@echo "  make ip       - Build IP layer only"

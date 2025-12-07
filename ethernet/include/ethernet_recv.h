@@ -40,6 +40,17 @@ int ethernet_register_protocol(uint16_t ether_type, ethernet_recv_callback_t cal
 int ethernet_unregister_protocol(uint16_t ether_type);
 
 /**
+ * @brief Get the source MAC address of the last received frame
+ * 
+ * This function returns the source MAC address from the most recently
+ * received Ethernet frame. Useful for upper layer protocols (like ICMP)
+ * that need to send a reply to the source.
+ * 
+ * @param mac Buffer to store MAC address (6 bytes)
+ */
+void ethernet_get_last_src_mac(uint8_t *mac);
+
+/**
  * @brief Clear all registered protocol handlers
  */
 void ethernet_clear_protocols(void);

@@ -1,7 +1,7 @@
 # IP Network Layer Makefile
 
 CC = gcc
-CFLAGS = -Wall -Wextra -I$(INC_DIR) -I$(ETHERNET_INC_DIR) -I$(ARP_INC_DIR) -I$(COMMON_INC_DIR) -g
+CFLAGS = -Wall -Wextra -I$(INC_DIR) -I$(ETHERNET_INC_DIR) -I$(ARP_INC_DIR) -I$(ICMP_INC_DIR) -I$(COMMON_INC_DIR) -g
 LDFLAGS = -lm -lpcap
 
 # Directories
@@ -26,6 +26,11 @@ ARP_DIR = ../arp
 ARP_SRC_DIR = $(ARP_DIR)/src
 ARP_INC_DIR = $(ARP_DIR)/include
 
+# ICMP layer directories
+ICMP_DIR = ../icmp
+ICMP_SRC_DIR = $(ICMP_DIR)/src
+ICMP_INC_DIR = $(ICMP_DIR)/include
+
 # Source files
 SEND_SRCS = $(SRC_DIR)/ip_send.c $(SRC_DIR)/send_main.c
 RECV_SRCS = $(SRC_DIR)/ip_recv.c $(SRC_DIR)/recv_main.c
@@ -39,6 +44,9 @@ ETHERNET_RECV_SRCS = $(ETHERNET_COMMON_SRCS) $(ETHERNET_SRC_DIR)/ethernet_recv.c
 ARP_SRCS = $(ARP_SRC_DIR)/arp.c $(ARP_SRC_DIR)/arp_send.c
 ARP_RECV_SRCS = $(ARP_SRC_DIR)/arp.c $(ARP_SRC_DIR)/arp_send.c $(ARP_SRC_DIR)/arp_recv.c
 
+# ICMP layer source files
+ICMP_RECV_SRCS = $(ICMP_SRC_DIR)/icmp_recv.c
+
 # Object files
 SEND_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(SEND_SRCS))
 RECV_OBJS = $(patsubst $(SRC_DIR)/%.c,$(BUILD_DIR)/%.o,$(RECV_SRCS))
@@ -50,6 +58,9 @@ ETHERNET_RECV_OBJS = $(patsubst $(ETHERNET_SRC_DIR)/%.c,$(BUILD_DIR)/eth_%.o,$(E
 # ARP layer object files
 ARP_OBJS = $(patsubst $(ARP_SRC_DIR)/%.c,$(BUILD_DIR)/arp_%.o,$(ARP_SRCS))
 ARP_RECV_OBJS = $(patsubst $(ARP_SRC_DIR)/%.c,$(BUILD_DIR)/arp_%.o,$(ARP_RECV_SRCS))
+
+# ICMP layer object files
+ICMP_RECV_OBJS = $(patsubst $(ICMP_SRC_DIR)/%.c,$(BUILD_DIR)/icmp_%.o,$(ICMP_RECV_SRCS))
 
 # Executables
 SEND_TARGET = ip_send
@@ -65,7 +76,7 @@ dirs:
 $(SEND_TARGET): $(SEND_OBJS) $(ETHERNET_SEND_OBJS) $(ARP_OBJS) $(COMMON_LIB)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
-$(RECV_TARGET): $(RECV_OBJS) $(BUILD_DIR)/ip_send.o $(ETHERNET_RECV_OBJS) $(ARP_RECV_OBJS) $(ETHERNET_SEND_OBJS) $(COMMON_LIB)
+$(RECV_TARGET): $(RECV_OBJS) $(BUILD_DIR)/ip_send.o $(ETHERNET_RECV_OBJS) $(ARP_RECV_OBJS) $(ICMP_RECV_OBJS) $(ETHERNET_SEND_OBJS) $(COMMON_LIB)
 	$(CC) -o $@ $^ $(LDFLAGS)
 
 $(BUILD_DIR)/%.o: $(SRC_DIR)/%.c
@@ -77,6 +88,10 @@ $(BUILD_DIR)/eth_%.o: $(ETHERNET_SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 $(BUILD_DIR)/arp_%.o: $(ARP_SRC_DIR)/%.c
+	@mkdir -p $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/icmp_%.o: $(ICMP_SRC_DIR)/%.c
 	@mkdir -p $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c $< -o $@
 

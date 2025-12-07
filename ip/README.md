@@ -1,6 +1,6 @@
 # IP 网络层
 
-协议栈主程序入口，整合 Ethernet + ARP + IPv4。
+协议栈主程序入口，整合 Ethernet + ARP + IPv4 + ICMP。
 
 ## 编译
 

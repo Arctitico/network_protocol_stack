@@ -29,6 +29,9 @@ static uint8_t *g_my_mac = NULL;
 static uint8_t g_cached_local_mac[6] = {0};
 static int g_packet_count = 0;
 
+// Last received packet source MAC (for ICMP reply etc.)
+static uint8_t g_last_src_mac[6] = {0};
+
 // Protocol dispatch table
 static protocol_handler_t g_protocol_handlers[MAX_PROTOCOL_HANDLERS];
 
@@ -175,6 +178,9 @@ static void packet_handler(unsigned char *user_data, const struct pcap_pkthdr *p
     int data_len = pkthdr->len - ETHERNET_HEADER_SIZE;
     uint8_t *data_start = (uint8_t *)packet + ETHERNET_HEADER_SIZE;
     
+    // Store source MAC for upper layer use (e.g., ICMP reply)
+    memcpy(g_last_src_mac, header->src_mac, 6);
+    
     // Find and call handler for this EtherType
     for (int i = 0; i < MAX_PROTOCOL_HANDLERS; i++)
     {
@@ -249,6 +255,17 @@ int ethernet_unregister_protocol(uint16_t ether_type)
     
     LOG_WARN(&g_ethernet_logger, "Protocol handler for EtherType 0x%04X not found", ether_type);
     return -1;
+}
+
+/**
+ * Get the source MAC address of the last received frame
+ */
+void ethernet_get_last_src_mac(uint8_t *mac)
+{
+    if (mac != NULL)
+    {
+        memcpy(mac, g_last_src_mac, 6);
+    }
 }
 
 /**

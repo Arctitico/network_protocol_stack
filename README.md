@@ -1,6 +1,6 @@
 # 网络协议栈实现
 
-用户空间 C 语言网络协议栈 (Ethernet + ARP + IPv4)。
+用户空间 C 语言网络协议栈 (Ethernet + ARP + IPv4 + ICMP)。
 
 ## 依赖
 
