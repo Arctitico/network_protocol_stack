@@ -1,6 +1,18 @@
 # 网络协议栈实现
 
-用户空间 C 语言网络协议栈 (Ethernet + ARP + IPv4 + ICMP + UDP)。
+用户空间网络协议栈：Ethernet + ARP + IPv4 + ICMP + UDP。
+
+## 目录
+
+| 目录 | 说明 |
+|------|------|
+| common/ | 公共工具 |
+| ethernet/ | 以太网层 |
+| arp/ | ARP |
+| ip/ | IPv4 |
+| icmp/ | ICMP |
+| udp/ | UDP |
+| web/ | HTTP 应用（**独立项目，不依赖本协议栈，直接使用系统 Socket API**） |
 
 ## 依赖
 
@@ -16,22 +28,11 @@ make
 
 ## 运行
 
-本项目实现了 UDP 协议栈，包含服务器和客户端测试程序。
-
 ```bash
 # 终端 1 - 启动 UDP 服务器
-cd udp && sudo ./udp_server [port]
-
-# 终端 2 - 启动 UDP 客户端发送数据
-cd udp && sudo ./udp_client [data_file] [port]
-```
-
-例如：
-```bash
-# 终端 1
 cd udp && sudo ./udp_server 5050
 
-# 终端 2
+# 终端 2 - 启动 UDP 客户端发送数据
 cd udp && sudo ./udp_client data/input.txt 5050
 ```
 
@@ -57,9 +58,6 @@ sudo LOG_DISABLE=1 ./udp_server 5050
 
 # 启用控制台详细日志
 sudo LOG_QUIET=0 ./udp_server 5050
-
-# 禁用所有日志
-sudo LOG_DISABLE=1 LOG_QUIET=1 ./udp_server 5050
 ```
 
 ## 清理
